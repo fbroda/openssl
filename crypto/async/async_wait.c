@@ -1,53 +1,10 @@
 /*
- * Written by Matt Caswell (matt@openssl.org) for the OpenSSL project.
- */
-/* ====================================================================
- * Copyright (c) 2016 The OpenSSL Project.  All rights reserved.
+ * Copyright 2016 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 /* This must be the first #include file */
@@ -63,20 +20,22 @@ ASYNC_WAIT_CTX *ASYNC_WAIT_CTX_new(void)
 void ASYNC_WAIT_CTX_free(ASYNC_WAIT_CTX *ctx)
 {
     struct fd_lookup_st *curr;
+    struct fd_lookup_st *next;
 
     if (ctx == NULL)
         return;
 
     curr = ctx->fds;
     while (curr != NULL) {
-        if (curr->del) {
-            /* This one has already been deleted so do nothing */
-            curr = curr->next;
-            continue;
+        if (!curr->del) {
+            /* Only try and cleanup if it hasn't been marked deleted */
+            if (curr->cleanup != NULL)
+                curr->cleanup(ctx, curr->key, curr->fd, curr->custom_data);
         }
-        if (curr->cleanup != NULL)
-            curr->cleanup(ctx, curr->key, curr->fd, curr->custom_data);
-        curr = curr->next;
+        /* Always free the fd_lookup_st */
+        next = curr->next;
+        OPENSSL_free(curr);
+        curr = next;
     }
 
     OPENSSL_free(ctx);
@@ -179,16 +138,33 @@ int ASYNC_WAIT_CTX_get_changed_fds(ASYNC_WAIT_CTX *ctx, OSSL_ASYNC_FD *addfd,
 
 int ASYNC_WAIT_CTX_clear_fd(ASYNC_WAIT_CTX *ctx, const void *key)
 {
-    struct fd_lookup_st *curr;
+    struct fd_lookup_st *curr, *prev;
 
     curr = ctx->fds;
+    prev = NULL;
     while (curr != NULL) {
-        if (curr->del) {
+        if (curr->del == 1) {
             /* This one has been marked deleted already so do nothing */
             curr = curr->next;
             continue;
         }
         if (curr->key == key) {
+            /* If fd has just been added, remove it from the list */
+            if (curr->add == 1) {
+                if (ctx->fds == curr) {
+                    ctx->fds = curr->next;
+                } else {
+                    prev->next = curr->next;
+                }
+
+                /* It is responsibility of the caller to cleanup before calling
+                 * ASYNC_WAIT_CTX_clear_fd
+                 */
+                OPENSSL_free(curr);
+                ctx->numadd--;
+                return 1;
+            }
+
             /*
              * Mark it as deleted. We don't call cleanup if explicitly asked
              * to clear an fd. We assume the caller is going to do that (if
@@ -198,6 +174,7 @@ int ASYNC_WAIT_CTX_clear_fd(ASYNC_WAIT_CTX *ctx, const void *key)
             ctx->numdel++;
             return 1;
         }
+        prev = curr;
         curr = curr->next;
     }
     return 0;

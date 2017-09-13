@@ -1,4 +1,11 @@
-#!/usr/local/bin/perl
+#! /usr/bin/env perl
+# Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
 
 # Normal is the
 # md5_block_x86(MD5_CTX *c, ULONG *X);
@@ -14,7 +21,7 @@ require "x86asm.pl";
 $output=pop;
 open STDOUT,">$output";
 
-&asm_init($ARGV[0],$0);
+&asm_init($ARGV[0]);
 
 $A="eax";
 $B="ebx";
@@ -50,7 +57,7 @@ sub R0
 	local($pos,$a,$b,$c,$d,$K,$ki,$s,$t)=@_;
 
 	&mov($tmp1,$C)  if $pos < 0;
-	&mov($tmp2,&DWP($xo[$ki]*4,$K,"",0)) if $pos < 0; # very first one 
+	&mov($tmp2,&DWP($xo[$ki]*4,$K,"",0)) if $pos < 0; # very first one
 
 	# body proper
 

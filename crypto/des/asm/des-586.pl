@@ -1,8 +1,13 @@
-#!/usr/local/bin/perl
+#! /usr/bin/env perl
+# Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
 #
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
 # The inner loop instruction sequence and the IP/FP modifications are from
 # Svend Olaf Mikkelsen <svolaf@inet.uni-c.dk>
-#
 
 $0 =~ m/(.*[\/\\])[^\/\\]+$/; $dir=$1;
 push(@INC,"${dir}","${dir}../../perlasm");
@@ -18,7 +23,7 @@ require "desboth.pl";
 $output=pop;
 open STDOUT,">$output";
 
-&asm_init($ARGV[0],"des-586.pl");
+&asm_init($ARGV[0]);
 
 $L="edi";
 $R="esi";
@@ -80,7 +85,7 @@ sub DES_encrypt_internal()
 
 	&function_end_B("_x86_DES_encrypt");
 	}
-	
+
 sub DES_decrypt_internal()
 	{
 	&function_begin_B("_x86_DES_decrypt");
@@ -117,7 +122,7 @@ sub DES_decrypt_internal()
 
 	&function_end_B("_x86_DES_decrypt");
 	}
-	
+
 sub DES_encrypt
 	{
 	local($name,$do_ip)=@_;
@@ -278,7 +283,7 @@ sub IP_new
 	&R_PERM_OP($l,$tt,$r,14,"0x33333333",$r);
 	&R_PERM_OP($tt,$r,$l,22,"0x03fc03fc",$r);
 	&R_PERM_OP($l,$r,$tt, 9,"0xaaaaaaaa",$r);
-	
+
 	if ($lr != 3)
 		{
 		if (($lr-3) < 0)

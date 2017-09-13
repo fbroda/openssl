@@ -1,50 +1,10 @@
-/* ====================================================================
- * Copyright (c) 2014 The OpenSSL Project.  All rights reserved.
+/*
+ * Copyright 2014-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include <string.h>
@@ -147,6 +107,7 @@ static OCB_BLOCK *ocb_lookup_l(OCB128_CONTEXT *ctx, size_t idx)
 
     /* We don't have it - so calculate it */
     if (idx >= ctx->max_l_index) {
+        void *tmp_ptr;
         /*
          * Each additional entry allows to process almost double as
          * much data, so that in linear world the table will need to
@@ -157,10 +118,11 @@ static OCB_BLOCK *ocb_lookup_l(OCB128_CONTEXT *ctx, size_t idx)
          * the index.
          */
         ctx->max_l_index += (idx - ctx->max_l_index + 4) & ~3;
-        ctx->l =
+        tmp_ptr =
             OPENSSL_realloc(ctx->l, ctx->max_l_index * sizeof(OCB_BLOCK));
-        if (ctx->l == NULL)
+        if (tmp_ptr == NULL) /* prevent ctx->l from being clobbered */
             return NULL;
+        ctx->l = tmp_ptr;
     }
     while (l_index < idx) {
         ocb_double(ctx->l + l_index, ctx->l + l_index + 1);
@@ -268,7 +230,7 @@ int CRYPTO_ocb128_setiv(OCB128_CONTEXT *ctx, const unsigned char *iv,
 
     /*
      * Spec says IV is 120 bits or fewer - it allows non byte aligned lengths.
-     * We don't support  this at this stage
+     * We don't support this at this stage
      */
     if ((len > 15) || (len < 1) || (taglen > 16) || (taglen < 1)) {
         return -1;
@@ -312,8 +274,7 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
-    OCB_BLOCK tmp1;
-    OCB_BLOCK tmp2;
+    OCB_BLOCK tmp;
 
     /* Calculate the number of blocks of AAD provided now, and so far */
     num_blocks = len / 16;
@@ -322,7 +283,6 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
     /* Loop through all full blocks of AAD */
     for (i = ctx->blocks_hashed + 1; i <= all_num_blocks; i++) {
         OCB_BLOCK *lookup;
-        OCB_BLOCK *aad_block;
 
         /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
         lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -330,11 +290,13 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
             return 0;
         ocb_block16_xor(&ctx->offset_aad, lookup, &ctx->offset_aad);
 
+        memcpy(tmp.c, aad, 16);
+        aad += 16;
+
         /* Sum_i = Sum_{i-1} xor ENCIPHER(K, A_i xor Offset_i) */
-        aad_block = (OCB_BLOCK *)(aad + ((i - ctx->blocks_hashed - 1) * 16));
-        ocb_block16_xor(&ctx->offset_aad, aad_block, &tmp1);
-        ctx->encrypt(tmp1.c, tmp2.c, ctx->keyenc);
-        ocb_block16_xor(&ctx->sum, &tmp2, &ctx->sum);
+        ocb_block16_xor(&ctx->offset_aad, &tmp, &tmp);
+        ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
+        ocb_block16_xor(&tmp, &ctx->sum, &ctx->sum);
     }
 
     /*
@@ -348,14 +310,14 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
         ocb_block16_xor(&ctx->offset_aad, &ctx->l_star, &ctx->offset_aad);
 
         /* CipherInput = (A_* || 1 || zeros(127-bitlen(A_*))) xor Offset_* */
-        memset(&tmp1, 0, 16);
-        memcpy(&tmp1, aad + (num_blocks * 16), last_len);
-        ((unsigned char *)&tmp1)[last_len] = 0x80;
-        ocb_block16_xor(&ctx->offset_aad, &tmp1, &tmp2);
+        memset(tmp.c, 0, 16);
+        memcpy(tmp.c, aad, last_len);
+        tmp.c[last_len] = 0x80;
+        ocb_block16_xor(&ctx->offset_aad, &tmp, &tmp);
 
         /* Sum = Sum_m xor ENCIPHER(K, CipherInput) */
-        ctx->encrypt(tmp2.c, tmp1.c, ctx->keyenc);
-        ocb_block16_xor(&ctx->sum, &tmp1, &ctx->sum);
+        ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
+        ocb_block16_xor(&tmp, &ctx->sum, &ctx->sum);
     }
 
     ctx->blocks_hashed = all_num_blocks;
@@ -373,9 +335,6 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
-    OCB_BLOCK tmp1;
-    OCB_BLOCK tmp2;
-    OCB_BLOCK pad;
 
     /*
      * Calculate the number of blocks of data to be encrypted provided now, and
@@ -404,8 +363,7 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
         /* Loop through all full blocks to be encrypted */
         for (i = ctx->blocks_processed + 1; i <= all_num_blocks; i++) {
             OCB_BLOCK *lookup;
-            OCB_BLOCK *inblock;
-            OCB_BLOCK *outblock;
+            OCB_BLOCK tmp;
 
             /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
             lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -413,16 +371,19 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
                 return 0;
             ocb_block16_xor(&ctx->offset, lookup, &ctx->offset);
 
-            /* C_i = Offset_i xor ENCIPHER(K, P_i xor Offset_i) */
-            inblock =
-	        (OCB_BLOCK *)(in + ((i - ctx->blocks_processed - 1) * 16));
-            ocb_block16_xor_misaligned(&ctx->offset, inblock, &tmp1);
+            memcpy(tmp.c, in, 16);
+            in += 16;
+
             /* Checksum_i = Checksum_{i-1} xor P_i */
-            ocb_block16_xor_misaligned(&ctx->checksum, inblock, &ctx->checksum);
-            ctx->encrypt(tmp1.c, tmp2.c, ctx->keyenc);
-            outblock =
-                (OCB_BLOCK *)(out + ((i - ctx->blocks_processed - 1) * 16));
-            ocb_block16_xor_misaligned(&ctx->offset, &tmp2, outblock);
+            ocb_block16_xor(&tmp, &ctx->checksum, &ctx->checksum);
+
+            /* C_i = Offset_i xor ENCIPHER(K, P_i xor Offset_i) */
+            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
+            ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
+            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
+
+            memcpy(out, tmp.c, 16);
+            out += 16;
         }
     }
 
@@ -433,6 +394,8 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
     last_len = len % 16;
 
     if (last_len > 0) {
+        OCB_BLOCK pad;
+
         /* Offset_* = Offset_m xor L_* */
         ocb_block16_xor(&ctx->offset, &ctx->l_star, &ctx->offset);
 
@@ -440,14 +403,13 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
         ctx->encrypt(ctx->offset.c, pad.c, ctx->keyenc);
 
         /* C_* = P_* xor Pad[1..bitlen(P_*)] */
-        ocb_block_xor(in + (len / 16) * 16, (unsigned char *)&pad, last_len,
-                      out + (num_blocks * 16));
+        ocb_block_xor(in, pad.c, last_len, out);
 
         /* Checksum_* = Checksum_m xor (P_* || 1 || zeros(127-bitlen(P_*))) */
-        memset(&tmp1, 0, 16);
-        memcpy(&tmp1, in + (len / 16) * 16, last_len);
-        ((unsigned char *)(&tmp1))[last_len] = 0x80;
-        ocb_block16_xor(&ctx->checksum, &tmp1, &ctx->checksum);
+        memset(pad.c, 0, 16);           /* borrow pad */
+        memcpy(pad.c, in, last_len);
+        pad.c[last_len] = 0x80;
+        ocb_block16_xor(&pad, &ctx->checksum, &ctx->checksum);
     }
 
     ctx->blocks_processed = all_num_blocks;
@@ -465,9 +427,6 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
-    OCB_BLOCK tmp1;
-    OCB_BLOCK tmp2;
-    OCB_BLOCK pad;
 
     /*
      * Calculate the number of blocks of data to be decrypted provided now, and
@@ -493,10 +452,10 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
                     (size_t)ctx->blocks_processed + 1, ctx->offset.c,
                     (const unsigned char (*)[16])ctx->l, ctx->checksum.c);
     } else {
+        OCB_BLOCK tmp;
+
         /* Loop through all full blocks to be decrypted */
         for (i = ctx->blocks_processed + 1; i <= all_num_blocks; i++) {
-            OCB_BLOCK *inblock;
-            OCB_BLOCK *outblock;
 
             /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
             OCB_BLOCK *lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -504,17 +463,19 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
                 return 0;
             ocb_block16_xor(&ctx->offset, lookup, &ctx->offset);
 
+            memcpy(tmp.c, in, 16);
+            in += 16;
+
             /* P_i = Offset_i xor DECIPHER(K, C_i xor Offset_i) */
-            inblock =
-                (OCB_BLOCK *)(in + ((i - ctx->blocks_processed - 1) * 16));
-            ocb_block16_xor_misaligned(&ctx->offset, inblock, &tmp1);
-            ctx->decrypt(tmp1.c, tmp2.c, ctx->keydec);
-            outblock =
-                (OCB_BLOCK *)(out + ((i - ctx->blocks_processed - 1) * 16));
-            ocb_block16_xor_misaligned(&ctx->offset, &tmp2, outblock);
+            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
+            ctx->decrypt(tmp.c, tmp.c, ctx->keydec);
+            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
 
             /* Checksum_i = Checksum_{i-1} xor P_i */
-            ocb_block16_xor_misaligned(&ctx->checksum, outblock, &ctx->checksum);
+            ocb_block16_xor(&tmp, &ctx->checksum, &ctx->checksum);
+
+            memcpy(out, tmp.c, 16);
+            out += 16;
         }
     }
 
@@ -525,6 +486,8 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
     last_len = len % 16;
 
     if (last_len > 0) {
+        OCB_BLOCK pad;
+
         /* Offset_* = Offset_m xor L_* */
         ocb_block16_xor(&ctx->offset, &ctx->l_star, &ctx->offset);
 
@@ -532,14 +495,13 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
         ctx->encrypt(ctx->offset.c, pad.c, ctx->keyenc);
 
         /* P_* = C_* xor Pad[1..bitlen(C_*)] */
-        ocb_block_xor(in + (len / 16) * 16, (unsigned char *)&pad, last_len,
-                      out + (num_blocks * 16));
+        ocb_block_xor(in, pad.c, last_len, out);
 
         /* Checksum_* = Checksum_m xor (P_* || 1 || zeros(127-bitlen(P_*))) */
-        memset(&tmp1, 0, 16);
-        memcpy(&tmp1, out + (len / 16) * 16, last_len);
-        ((unsigned char *)(&tmp1))[last_len] = 0x80;
-        ocb_block16_xor(&ctx->checksum, &tmp1, &ctx->checksum);
+        memset(pad.c, 0, 16);           /* borrow pad */
+        memcpy(pad.c, out, last_len);
+        pad.c[last_len] = 0x80;
+        ocb_block16_xor(&pad, &ctx->checksum, &ctx->checksum);
     }
 
     ctx->blocks_processed = all_num_blocks;
@@ -553,15 +515,15 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
 int CRYPTO_ocb128_finish(OCB128_CONTEXT *ctx, const unsigned char *tag,
                          size_t len)
 {
-    OCB_BLOCK tmp1, tmp2;
+    OCB_BLOCK tmp;
 
     /*
      * Tag = ENCIPHER(K, Checksum_* xor Offset_* xor L_$) xor HASH(K,A)
      */
-    ocb_block16_xor(&ctx->checksum, &ctx->offset, &tmp1);
-    ocb_block16_xor(&tmp1, &ctx->l_dollar, &tmp2);
-    ctx->encrypt(tmp2.c, tmp1.c, ctx->keyenc);
-    ocb_block16_xor(&tmp1, &ctx->sum, &ctx->tag);
+    ocb_block16_xor(&ctx->checksum, &ctx->offset, &tmp);
+    ocb_block16_xor(&ctx->l_dollar, &tmp, &tmp);
+    ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
+    ocb_block16_xor(&tmp, &ctx->sum, &ctx->tag);
 
     if (len > 16 || len < 1) {
         return -1;
@@ -587,7 +549,7 @@ int CRYPTO_ocb128_tag(OCB128_CONTEXT *ctx, unsigned char *tag, size_t len)
     CRYPTO_ocb128_finish(ctx, NULL, 0);
 
     /* Copy the tag into the supplied buffer */
-    memcpy(tag, &ctx->tag, len);
+    memcpy(tag, ctx->tag.c, len);
 
     return 1;
 }

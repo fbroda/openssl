@@ -1,67 +1,19 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include <stdio.h>
-#include <ctype.h>
+#include "internal/ctype.h"
 #include <limits.h>
 #include "internal/cryptlib.h"
 #include <openssl/lhash.h>
 #include <openssl/asn1.h>
-#include <openssl/objects.h>
+#include "internal/objects.h"
 #include <openssl/bn.h>
 #include "internal/asn1_int.h"
 #include "obj_lcl.h"
@@ -88,14 +40,14 @@ static LHASH_OF(ADDED_OBJ) *added = NULL;
 
 static int sn_cmp(const ASN1_OBJECT *const *a, const unsigned int *b)
 {
-    return (strcmp((*a)->sn, nid_objs[*b].sn));
+    return strcmp((*a)->sn, nid_objs[*b].sn);
 }
 
 IMPLEMENT_OBJ_BSEARCH_CMP_FN(const ASN1_OBJECT *, unsigned int, sn);
 
 static int ln_cmp(const ASN1_OBJECT *const *a, const unsigned int *b)
 {
-    return (strcmp((*a)->ln, nid_objs[*b].ln));
+    return strcmp((*a)->ln, nid_objs[*b].ln);
 }
 
 IMPLEMENT_OBJ_BSEARCH_CMP_FN(const ASN1_OBJECT *, unsigned int, ln);
@@ -116,10 +68,10 @@ static unsigned long added_obj_hash(const ADDED_OBJ *ca)
             ret ^= p[i] << ((i * 3) % 24);
         break;
     case ADDED_SNAME:
-        ret = lh_strhash(a->sn);
+        ret = OPENSSL_LH_strhash(a->sn);
         break;
     case ADDED_LNAME:
-        ret = lh_strhash(a->ln);
+        ret = OPENSSL_LH_strhash(a->ln);
         break;
     case ADDED_NID:
         ret = a->nid;
@@ -130,7 +82,7 @@ static unsigned long added_obj_hash(const ADDED_OBJ *ca)
     }
     ret &= 0x3fffffffL;
     ret |= ((unsigned long)ca->type) << 30L;
-    return (ret);
+    return ret;
 }
 
 static int added_obj_cmp(const ADDED_OBJ *ca, const ADDED_OBJ *cb)
@@ -140,31 +92,31 @@ static int added_obj_cmp(const ADDED_OBJ *ca, const ADDED_OBJ *cb)
 
     i = ca->type - cb->type;
     if (i)
-        return (i);
+        return i;
     a = ca->obj;
     b = cb->obj;
     switch (ca->type) {
     case ADDED_DATA:
         i = (a->length - b->length);
         if (i)
-            return (i);
-        return (memcmp(a->data, b->data, (size_t)a->length));
+            return i;
+        return memcmp(a->data, b->data, (size_t)a->length);
     case ADDED_SNAME:
         if (a->sn == NULL)
-            return (-1);
+            return -1;
         else if (b->sn == NULL)
-            return (1);
+            return 1;
         else
-            return (strcmp(a->sn, b->sn));
+            return strcmp(a->sn, b->sn);
     case ADDED_LNAME:
         if (a->ln == NULL)
-            return (-1);
+            return -1;
         else if (b->ln == NULL)
-            return (1);
+            return 1;
         else
-            return (strcmp(a->ln, b->ln));
+            return strcmp(a->ln, b->ln);
     case ADDED_NID:
-        return (a->nid - b->nid);
+        return a->nid - b->nid;
     default:
         /* abort(); */
         return 0;
@@ -174,9 +126,9 @@ static int added_obj_cmp(const ADDED_OBJ *ca, const ADDED_OBJ *cb)
 static int init_added(void)
 {
     if (added != NULL)
-        return (1);
+        return 1;
     added = lh_ADDED_OBJ_new(added_obj_hash, added_obj_cmp);
-    return (added != NULL);
+    return added != NULL;
 }
 
 static void cleanup1_doall(ADDED_OBJ *a)
@@ -198,24 +150,8 @@ static void cleanup3_doall(ADDED_OBJ *a)
     OPENSSL_free(a);
 }
 
-/*
- * The purpose of obj_cleanup_defer is to avoid EVP_cleanup() attempting to
- * use freed up OIDs. If necessary the actual freeing up of OIDs is delayed.
- */
-int obj_cleanup_defer = 0;
-
-void check_defer(int nid)
+void obj_cleanup_int(void)
 {
-    if (!obj_cleanup_defer && nid >= NUM_NID)
-        obj_cleanup_defer = 1;
-}
-
-void OBJ_cleanup(void)
-{
-    if (obj_cleanup_defer) {
-        obj_cleanup_defer = 2;
-        return;
-    }
     if (added == NULL)
         return;
     lh_ADDED_OBJ_set_down_load(added, 0);
@@ -232,7 +168,7 @@ int OBJ_new_nid(int num)
 
     i = new_nid;
     new_nid += num;
-    return (i);
+    return i;
 }
 
 int OBJ_add_object(const ASN1_OBJECT *obj)
@@ -243,7 +179,7 @@ int OBJ_add_object(const ASN1_OBJECT *obj)
 
     if (added == NULL)
         if (!init_added())
-            return (0);
+            return 0;
     if ((o = OBJ_dup(obj)) == NULL)
         goto err;
     if ((ao[ADDED_NID] = OPENSSL_malloc(sizeof(*ao[0]))) == NULL)
@@ -263,7 +199,7 @@ int OBJ_add_object(const ASN1_OBJECT *obj)
             ao[i]->type = i;
             ao[i]->obj = o;
             aop = lh_ADDED_OBJ_insert(added, ao[i]);
-            /* memory leak, buit should not normally matter */
+            /* memory leak, but should not normally matter */
             OPENSSL_free(aop);
         }
     }
@@ -271,14 +207,14 @@ int OBJ_add_object(const ASN1_OBJECT *obj)
         ~(ASN1_OBJECT_FLAG_DYNAMIC | ASN1_OBJECT_FLAG_DYNAMIC_STRINGS |
           ASN1_OBJECT_FLAG_DYNAMIC_DATA);
 
-    return (o->nid);
+    return o->nid;
  err2:
     OBJerr(OBJ_F_OBJ_ADD_OBJECT, ERR_R_MALLOC_FAILURE);
  err:
     for (i = ADDED_DATA; i <= ADDED_NID; i++)
         OPENSSL_free(ao[i]);
     OPENSSL_free(o);
-    return (NID_undef);
+    return NID_undef;
 }
 
 ASN1_OBJECT *OBJ_nid2obj(int n)
@@ -289,21 +225,21 @@ ASN1_OBJECT *OBJ_nid2obj(int n)
     if ((n >= 0) && (n < NUM_NID)) {
         if ((n != NID_undef) && (nid_objs[n].nid == NID_undef)) {
             OBJerr(OBJ_F_OBJ_NID2OBJ, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
-        return ((ASN1_OBJECT *)&(nid_objs[n]));
+        return (ASN1_OBJECT *)&(nid_objs[n]);
     } else if (added == NULL)
-        return (NULL);
+        return NULL;
     else {
         ad.type = ADDED_NID;
         ad.obj = &ob;
         ob.nid = n;
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj);
+            return adp->obj;
         else {
             OBJerr(OBJ_F_OBJ_NID2OBJ, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
     }
 }
@@ -316,21 +252,21 @@ const char *OBJ_nid2sn(int n)
     if ((n >= 0) && (n < NUM_NID)) {
         if ((n != NID_undef) && (nid_objs[n].nid == NID_undef)) {
             OBJerr(OBJ_F_OBJ_NID2SN, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
-        return (nid_objs[n].sn);
+        return nid_objs[n].sn;
     } else if (added == NULL)
-        return (NULL);
+        return NULL;
     else {
         ad.type = ADDED_NID;
         ad.obj = &ob;
         ob.nid = n;
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj->sn);
+            return adp->obj->sn;
         else {
             OBJerr(OBJ_F_OBJ_NID2SN, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
     }
 }
@@ -343,21 +279,21 @@ const char *OBJ_nid2ln(int n)
     if ((n >= 0) && (n < NUM_NID)) {
         if ((n != NID_undef) && (nid_objs[n].nid == NID_undef)) {
             OBJerr(OBJ_F_OBJ_NID2LN, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
-        return (nid_objs[n].ln);
+        return nid_objs[n].ln;
     } else if (added == NULL)
-        return (NULL);
+        return NULL;
     else {
         ad.type = ADDED_NID;
         ad.obj = &ob;
         ob.nid = n;
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj->ln);
+            return adp->obj->ln;
         else {
             OBJerr(OBJ_F_OBJ_NID2LN, OBJ_R_UNKNOWN_NID);
-            return (NULL);
+            return NULL;
         }
     }
 }
@@ -370,10 +306,10 @@ static int obj_cmp(const ASN1_OBJECT *const *ap, const unsigned int *bp)
 
     j = (a->length - b->length);
     if (j)
-        return (j);
+        return j;
     if (a->length == 0)
         return 0;
-    return (memcmp(a->data, b->data, a->length));
+    return memcmp(a->data, b->data, a->length);
 }
 
 IMPLEMENT_OBJ_BSEARCH_CMP_FN(const ASN1_OBJECT *, unsigned int, obj);
@@ -384,9 +320,9 @@ int OBJ_obj2nid(const ASN1_OBJECT *a)
     ADDED_OBJ ad, *adp;
 
     if (a == NULL)
-        return (NID_undef);
+        return NID_undef;
     if (a->nid != 0)
-        return (a->nid);
+        return a->nid;
 
     if (a->length == 0)
         return NID_undef;
@@ -396,12 +332,12 @@ int OBJ_obj2nid(const ASN1_OBJECT *a)
         ad.obj = (ASN1_OBJECT *)a; /* XXX: ugly but harmless */
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj->nid);
+            return adp->obj->nid;
     }
     op = OBJ_bsearch_obj(&a, obj_objs, NUM_OBJ);
     if (op == NULL)
-        return (NID_undef);
-    return (nid_objs[*op].nid);
+        return NID_undef;
+    return nid_objs[*op].nid;
 }
 
 /*
@@ -437,6 +373,8 @@ ASN1_OBJECT *OBJ_txt2obj(const char *s, int no_name)
     }
     /* Work out total size */
     j = ASN1_object_size(0, i, V_ASN1_OBJECT);
+    if (j < 0)
+        return NULL;
 
     if ((buf = OPENSSL_malloc(j)) == NULL)
         return NULL;
@@ -466,7 +404,7 @@ int OBJ_obj2txt(char *buf, int buf_len, const ASN1_OBJECT *a, int no_name)
         buf[0] = '\0';
 
     if ((a == NULL) || (a->data == NULL))
-        return (0);
+        return 0;
 
     if (!no_name && (nid = OBJ_obj2nid(a)) != NID_undef) {
         const char *s;
@@ -562,7 +500,7 @@ int OBJ_obj2txt(char *buf, int buf_len, const ASN1_OBJECT *a, int no_name)
             n += i;
             OPENSSL_free(bndec);
         } else {
-            BIO_snprintf(tbuf, sizeof tbuf, ".%lu", l);
+            BIO_snprintf(tbuf, sizeof(tbuf), ".%lu", l);
             i = strlen(tbuf);
             if (buf && (buf_len > 0)) {
                 OPENSSL_strlcpy(buf, tbuf, buf_len);
@@ -610,12 +548,12 @@ int OBJ_ln2nid(const char *s)
         ad.obj = &o;
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj->nid);
+            return adp->obj->nid;
     }
     op = OBJ_bsearch_ln(&oo, ln_objs, NUM_LN);
     if (op == NULL)
-        return (NID_undef);
-    return (nid_objs[*op].nid);
+        return NID_undef;
+    return nid_objs[*op].nid;
 }
 
 int OBJ_sn2nid(const char *s)
@@ -631,12 +569,12 @@ int OBJ_sn2nid(const char *s)
         ad.obj = &o;
         adp = lh_ADDED_OBJ_retrieve(added, &ad);
         if (adp != NULL)
-            return (adp->obj->nid);
+            return adp->obj->nid;
     }
     op = OBJ_bsearch_sn(&oo, sn_objs, NUM_SN);
     if (op == NULL)
-        return (NID_undef);
-    return (nid_objs[*op].nid);
+        return NID_undef;
+    return nid_objs[*op].nid;
 }
 
 const void *OBJ_bsearch_(const void *key, const void *base, int num, int size,
@@ -655,7 +593,7 @@ const void *OBJ_bsearch_ex_(const void *key, const void *base_, int num,
     const char *p = NULL;
 
     if (num == 0)
-        return (NULL);
+        return NULL;
     l = 0;
     h = num;
     while (l < h) {
@@ -691,7 +629,7 @@ const void *OBJ_bsearch_ex_(const void *key, const void *base_, int num,
             i--;
         p = &(base[i * size]);
     }
-    return (p);
+    return p;
 }
 
 int OBJ_create_objects(BIO *in)
@@ -704,26 +642,26 @@ int OBJ_create_objects(BIO *in)
         s = o = NULL;
         i = BIO_gets(in, buf, 512);
         if (i <= 0)
-            return (num);
+            return num;
         buf[i - 1] = '\0';
-        if (!isalnum((unsigned char)buf[0]))
-            return (num);
+        if (!ossl_isalnum(buf[0]))
+            return num;
         o = s = buf;
-        while (isdigit((unsigned char)*s) || (*s == '.'))
+        while (ossl_isdigit(*s) || *s == '.')
             s++;
         if (*s != '\0') {
             *(s++) = '\0';
-            while (isspace((unsigned char)*s))
+            while (ossl_isspace(*s))
                 s++;
             if (*s == '\0')
                 s = NULL;
             else {
                 l = s;
-                while ((*l != '\0') && !isspace((unsigned char)*l))
+                while (*l != '\0' && !ossl_isspace(*l))
                     l++;
                 if (*l != '\0') {
                     *(l++) = '\0';
-                    while (isspace((unsigned char)*l))
+                    while (ossl_isspace(*l))
                         l++;
                     if (*l == '\0')
                         l = NULL;
@@ -733,40 +671,48 @@ int OBJ_create_objects(BIO *in)
         } else
             s = NULL;
         if ((o == NULL) || (*o == '\0'))
-            return (num);
+            return num;
         if (!OBJ_create(o, s, l))
-            return (num);
+            return num;
         num++;
     }
-    /* return(num); */
 }
 
 int OBJ_create(const char *oid, const char *sn, const char *ln)
 {
+    ASN1_OBJECT *tmpoid = NULL;
     int ok = 0;
-    ASN1_OBJECT *op = NULL;
-    unsigned char *buf;
-    int i;
 
-    i = a2d_ASN1_OBJECT(NULL, 0, oid, -1);
-    if (i <= 0)
-        return (0);
-
-    if ((buf = OPENSSL_malloc(i)) == NULL) {
-        OBJerr(OBJ_F_OBJ_CREATE, ERR_R_MALLOC_FAILURE);
-        return (0);
+    /* Check to see if short or long name already present */
+    if ((sn != NULL && OBJ_sn2nid(sn) != NID_undef)
+            || (ln != NULL && OBJ_ln2nid(ln) != NID_undef)) {
+        OBJerr(OBJ_F_OBJ_CREATE, OBJ_R_OID_EXISTS);
+        return 0;
     }
-    i = a2d_ASN1_OBJECT(buf, i, oid, -1);
-    if (i == 0)
+
+    /* Convert numerical OID string to an ASN1_OBJECT structure */
+    tmpoid = OBJ_txt2obj(oid, 1);
+    if (tmpoid == NULL)
+        return 0;
+
+    /* If NID is not NID_undef then object already exists */
+    if (OBJ_obj2nid(tmpoid) != NID_undef) {
+        OBJerr(OBJ_F_OBJ_CREATE, OBJ_R_OID_EXISTS);
         goto err;
-    op = (ASN1_OBJECT *)ASN1_OBJECT_create(OBJ_new_nid(1), buf, i, sn, ln);
-    if (op == NULL)
-        goto err;
-    ok = OBJ_add_object(op);
+    }
+
+    tmpoid->nid = OBJ_new_nid(1);
+    tmpoid->sn = (char *)sn;
+    tmpoid->ln = (char *)ln;
+
+    ok = OBJ_add_object(tmpoid);
+
+    tmpoid->sn = NULL;
+    tmpoid->ln = NULL;
+
  err:
-    ASN1_OBJECT_free(op);
-    OPENSSL_free(buf);
-    return (ok);
+    ASN1_OBJECT_free(tmpoid);
+    return ok;
 }
 
 size_t OBJ_length(const ASN1_OBJECT *obj)

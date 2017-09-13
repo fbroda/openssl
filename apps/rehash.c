@@ -1,65 +1,17 @@
 /*
- * C implementation based on the original Perl and shell versions
+ * Copyright 2015-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright (c) 2013-2014 Timo Ter‰s <timo.teras@gmail.com>
  *
- * Copyright (c) 2013-2014 Timo Ter√§s <timo.teras@iki.fi>
- */
-/* ====================================================================
- * Copyright (c) 2015 The OpenSSL Project.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include "apps.h"
 
-#if defined(OPENSSL_SYS_UNIX) || defined(__APPLE__)
+#if defined(OPENSSL_SYS_UNIX) || defined(__APPLE__) || \
+    (defined(__VMS) && defined(__DECC) && __CRTL_VER >= 80300000)
 # include <unistd.h>
 # include <stdio.h>
 # include <limits.h>
@@ -68,12 +20,31 @@
 # include <ctype.h>
 # include <sys/stat.h>
 
+/*
+ * Make sure that the processing of symbol names is treated the same as when
+ * libcrypto is built.  This is done automatically for public headers (see
+ * include/openssl/__DECC_INCLUDE_PROLOGUE.H and __DECC_INCLUDE_EPILOGUE.H),
+ * but not for internal headers.
+ */
+# ifdef __VMS
+#  pragma names save
+#  pragma names as_is,shortened
+# endif
+
 # include "internal/o_dir.h"
+
+# ifdef __VMS
+#  pragma names restore
+# endif
+
 # include <openssl/evp.h>
 # include <openssl/pem.h>
 # include <openssl/x509.h>
 
 
+# ifndef PATH_MAX
+#  define PATH_MAX 4096
+# endif
 # ifndef NAME_MAX
 #  define NAME_MAX 255
 # endif
@@ -154,8 +125,8 @@ static int add_entry(enum Type type, unsigned int hash, const char *filename,
     for (ep = bp->first_entry; ep; ep = ep->next) {
         if (digest && memcmp(digest, ep->digest, evpmdsize) == 0) {
             BIO_printf(bio_err,
-                       "%s: skipping duplicate certificate in %s\n",
-                       opt_getprog(), filename);
+                       "%s: skipping duplicate %s in %s\n", opt_getprog(),
+                       type == TYPE_CERT ? "certificate" : "CRL", filename);
             return 1;
         }
         if (strcmp(filename, ep->filename) == 0) {
@@ -203,20 +174,22 @@ static int handle_symlink(const char *filename, const char *fullpath)
     int i, type, id;
     unsigned char ch;
     char linktarget[PATH_MAX], *endptr;
-    ssize_t n;
+    ossl_ssize_t n;
 
     for (i = 0; i < 8; i++) {
         ch = filename[i];
         if (!isxdigit(ch))
             return -1;
         hash <<= 4;
-        hash += app_hex(ch);
+        hash += OPENSSL_hexchar2int(ch);
     }
     if (filename[i++] != '.')
         return -1;
-    for (type = OSSL_NELEM(suffixes) - 1; type > 0; type--)
-        if (strcasecmp(suffixes[type], &filename[i]) == 0)
+    for (type = OSSL_NELEM(suffixes) - 1; type > 0; type--) {
+        const char *suffix = suffixes[type];
+        if (strncasecmp(suffix, &filename[i], strlen(suffix)) == 0)
             break;
+    }
     i += strlen(suffixes[type]);
 
     id = strtoul(&filename[i], &endptr, 10);
@@ -276,11 +249,11 @@ static int do_file(const char *filename, const char *fullpath, enum Hash h)
         goto end;
     }
     x = sk_X509_INFO_value(inf, 0);
-    if (x->x509) {
+    if (x->x509 != NULL) {
         type = TYPE_CERT;
         name = X509_get_subject_name(x->x509);
         X509_digest(x->x509, evpmd, digest, NULL);
-    } else if (x->crl) {
+    } else if (x->crl != NULL) {
         type = TYPE_CRL;
         name = X509_CRL_get_issuer(x->crl);
         X509_CRL_digest(x->crl, evpmd, digest, NULL);
@@ -288,7 +261,7 @@ static int do_file(const char *filename, const char *fullpath, enum Hash h)
         ++errs;
         goto end;
     }
-    if (name) {
+    if (name != NULL) {
         if ((h == HASH_NEW) || (h == HASH_BOTH))
             errs += add_entry(type, X509_NAME_hash(name), filename, digest, 1, ~0);
         if ((h == HASH_OLD) || (h == HASH_BOTH))
@@ -298,6 +271,43 @@ static int do_file(const char *filename, const char *fullpath, enum Hash h)
 end:
     sk_X509_INFO_pop_free(inf, X509_INFO_free);
     return errs;
+}
+
+static void str_free(char *s)
+{
+    OPENSSL_free(s);
+}
+
+static int ends_with_dirsep(const char *path)
+{
+    if (*path != '\0')
+        path += strlen(path) - 1;
+# if defined __VMS
+    if (*path == ']' || *path == '>' || *path == ':')
+        return 1;
+# elif defined _WIN32
+    if (*path == '\\')
+        return 1;
+# endif
+    return *path == '/';
+}
+
+static int massage_filename(char *name)
+{
+# ifdef __VMS
+    char *p = strchr(name, ';');
+    char *q = p;
+
+    if (q != NULL) {
+        for (q++; *q != '\0'; q++) {
+            if (!isdigit((unsigned char)*q))
+                return 1;
+        }
+    }
+
+    *p = '\0';
+# endif
+    return 1;
 }
 
 /*
@@ -310,27 +320,45 @@ static int do_dir(const char *dirname, enum Hash h)
     OPENSSL_DIR_CTX *d = NULL;
     struct stat st;
     unsigned char idmask[MAX_COLLISIONS / 8];
-    int n, nextid, buflen, errs = 0;
+    int n, numfiles, nextid, buflen, errs = 0;
     size_t i;
     const char *pathsep;
     const char *filename;
-    char *buf;
+    char *buf, *copy;
+    STACK_OF(OPENSSL_STRING) *files = NULL;
 
     if (app_access(dirname, W_OK) < 0) {
         BIO_printf(bio_err, "Skipping %s, can't write\n", dirname);
         return 1;
     }
     buflen = strlen(dirname);
-    pathsep = (buflen && dirname[buflen - 1] == '/') ? "" : "/";
+    pathsep = (buflen && !ends_with_dirsep(dirname)) ? "/": "";
     buflen += NAME_MAX + 1 + 1;
     buf = app_malloc(buflen, "filename buffer");
 
     if (verbose)
         BIO_printf(bio_out, "Doing %s\n", dirname);
 
+    if ((files = sk_OPENSSL_STRING_new_null()) == NULL) {
+        BIO_printf(bio_err, "Skipping %s, out of memory\n", dirname);
+        exit(1);
+    }
     while ((filename = OPENSSL_DIR_read(&d, dirname)) != NULL) {
-        if (snprintf(buf, buflen, "%s%s%s",
-                    dirname, pathsep, filename) >= buflen)
+        if ((copy = strdup(filename)) == NULL
+                || !massage_filename(copy)
+                || sk_OPENSSL_STRING_push(files, copy) == 0) {
+            BIO_puts(bio_err, "out of memory\n");
+            exit(1);
+        }
+    }
+    OPENSSL_DIR_end(&d);
+    sk_OPENSSL_STRING_sort(files);
+
+    numfiles = sk_OPENSSL_STRING_num(files);
+    for (n = 0; n < numfiles; ++n) {
+        filename = sk_OPENSSL_STRING_value(files, n);
+        if (BIO_snprintf(buf, buflen, "%s%s%s",
+                         dirname, pathsep, filename) >= buflen)
             continue;
         if (lstat(buf, &st) < 0)
             continue;
@@ -338,7 +366,7 @@ static int do_dir(const char *dirname, enum Hash h)
             continue;
         errs += do_file(filename, buf, h);
     }
-    OPENSSL_DIR_end(&d);
+    sk_OPENSSL_STRING_pop_free(files, str_free);
 
     for (i = 0; i < OSSL_NELEM(hash_table); i++) {
         for (bp = hash_table[i]; bp; bp = nextbp) {
@@ -353,8 +381,8 @@ static int do_dir(const char *dirname, enum Hash h)
                 nextep = ep->next;
                 if (ep->old_id < bp->num_needed) {
                     /* Link exists, and is used as-is */
-                    snprintf(buf, buflen, "%08x.%s%d", bp->hash,
-                             suffixes[bp->type], ep->old_id);
+                    BIO_snprintf(buf, buflen, "%08x.%s%d", bp->hash,
+                                 suffixes[bp->type], ep->old_id);
                     if (verbose)
                         BIO_printf(bio_out, "link %s -> %s\n",
                                    ep->filename, buf);
@@ -363,9 +391,9 @@ static int do_dir(const char *dirname, enum Hash h)
                     while (bit_isset(idmask, nextid))
                         nextid++;
 
-                    snprintf(buf, buflen, "%s%s%n%08x.%s%d",
-                             dirname, pathsep, &n, bp->hash,
-                             suffixes[bp->type], nextid);
+                    BIO_snprintf(buf, buflen, "%s%s%n%08x.%s%d",
+                                 dirname, pathsep, &n, bp->hash,
+                                 suffixes[bp->type], nextid);
                     if (verbose)
                         BIO_printf(bio_out, "link %s -> %s\n",
                                    ep->filename, &buf[n]);
@@ -382,11 +410,12 @@ static int do_dir(const char *dirname, enum Hash h)
                                    strerror(errno));
                         errs++;
                     }
+                    bit_set(idmask, nextid);
                 } else if (remove_links) {
                     /* Link to be deleted */
-                    snprintf(buf, buflen, "%s%s%n%08x.%s%d",
-                             dirname, pathsep, &n, bp->hash,
-                             suffixes[bp->type], ep->old_id);
+                    BIO_snprintf(buf, buflen, "%s%s%n%08x.%s%d",
+                                 dirname, pathsep, &n, bp->hash,
+                                 suffixes[bp->type], ep->old_id);
                     if (verbose)
                         BIO_printf(bio_out, "unlink %s\n",
                                    &buf[n]);
@@ -414,10 +443,11 @@ typedef enum OPTION_choice {
     OPT_COMPAT, OPT_OLD, OPT_N, OPT_VERBOSE
 } OPTION_CHOICE;
 
-OPTIONS rehash_options[] = {
+const OPTIONS rehash_options[] = {
     {OPT_HELP_STR, 1, '-', "Usage: %s [options] [cert-directory...]\n"},
     {OPT_HELP_STR, 1, '-', "Valid options are:\n"},
     {"help", OPT_HELP, '-', "Display this summary"},
+    {"h", OPT_HELP, '-', "Display this summary"},
     {"compat", OPT_COMPAT, '-', "Create both new- and old-style hash links"},
     {"old", OPT_OLD, '-', "Use old-style hash to generate links"},
     {"n", OPT_N, '-', "Do not remove existing links"},
@@ -464,8 +494,8 @@ int rehash_main(int argc, char **argv)
     evpmd = EVP_sha1();
     evpmdsize = EVP_MD_size(evpmd);
 
-    if (*argv) {
-        while (*argv)
+    if (*argv != NULL) {
+        while (*argv != NULL)
             errs += do_dir(*argv++, h);
     } else if ((env = getenv("SSL_CERT_DIR")) != NULL) {
         m = OPENSSL_strdup(env);
@@ -481,7 +511,7 @@ int rehash_main(int argc, char **argv)
 }
 
 #else
-OPTIONS rehash_options[] = {
+const OPTIONS rehash_options[] = {
     {NULL}
 };
 

@@ -1,121 +1,20 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
- */
-/* ====================================================================
- * Copyright (c) 1998-2006 The OpenSSL Project.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include "internal/cryptlib.h"
-#include "internal/threads.h"
+#include "internal/thread_once.h"
 #include <openssl/crypto.h>
 #include <openssl/buffer.h>
-#include <openssl/bio.h>
+#include "internal/bio.h"
 #include <openssl/lhash.h>
 
 #ifndef OPENSSL_NO_CRYPTO_MDEBUG_BACKTRACE
@@ -189,11 +88,19 @@ static unsigned int num_disable = 0;
  */
 static CRYPTO_THREAD_ID disabling_threadid;
 
-static void do_memdbg_init(void)
+DEFINE_RUN_ONCE_STATIC(do_memdbg_init)
 {
-    malloc_lock = CRYPTO_THREAD_lock_new();
-    long_malloc_lock = CRYPTO_THREAD_lock_new();
-    CRYPTO_THREAD_init_local(&appinfokey, NULL);
+    malloc_lock = CRYPTO_THREAD_glock_new("malloc");
+    long_malloc_lock = CRYPTO_THREAD_glock_new("long_malloc");
+    if (malloc_lock == NULL || long_malloc_lock == NULL
+        || !CRYPTO_THREAD_init_local(&appinfokey, NULL)) {
+        CRYPTO_THREAD_lock_free(malloc_lock);
+        malloc_lock = NULL;
+        CRYPTO_THREAD_lock_free(long_malloc_lock);
+        long_malloc_lock = NULL;
+        return 0;
+    }
+    return 1;
 }
 
 static void app_info_free(APP_INFO *inf)
@@ -214,7 +121,8 @@ int CRYPTO_mem_ctrl(int mode)
 #else
     int ret = mh_mode;
 
-    CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
+    if (!RUN_ONCE(&memdbg_init, do_memdbg_init))
+        return -1;
 
     CRYPTO_THREAD_write_lock(malloc_lock);
     switch (mode) {
@@ -275,7 +183,7 @@ int CRYPTO_mem_ctrl(int mode)
         break;
     }
     CRYPTO_THREAD_unlock(malloc_lock);
-    return (ret);
+    return ret;
 #endif
 }
 
@@ -287,7 +195,8 @@ static int mem_check_on(void)
     CRYPTO_THREAD_ID cur;
 
     if (mh_mode & CRYPTO_MEM_CHECK_ON) {
-        CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
+        if (!RUN_ONCE(&memdbg_init, do_memdbg_init))
+            return 0;
 
         cur = CRYPTO_THREAD_get_current_id();
         CRYPTO_THREAD_read_lock(malloc_lock);
@@ -297,7 +206,7 @@ static int mem_check_on(void)
 
         CRYPTO_THREAD_unlock(malloc_lock);
     }
-    return (ret);
+    return ret;
 }
 
 static int mem_cmp(const MEM *a, const MEM *b)
@@ -322,7 +231,7 @@ static unsigned long mem_hash(const MEM *a)
     ret = (size_t)a->addr;
 
     ret = ret * 17851 + (ret >> 14) * 7 + (ret >> 4) * 251;
-    return (ret);
+    return ret;
 }
 
 /* returns 1 if there was an info to pop, 0 if the stack was empty. */
@@ -330,7 +239,9 @@ static int pop_info(void)
 {
     APP_INFO *current = NULL;
 
-    CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
+    if (!RUN_ONCE(&memdbg_init, do_memdbg_init))
+        return 0;
+
     current = (APP_INFO *)CRYPTO_THREAD_get_local(&appinfokey);
     if (current != NULL) {
         APP_INFO *next = current->next;
@@ -360,9 +271,8 @@ int CRYPTO_mem_debug_push(const char *info, const char *file, int line)
     if (mem_check_on()) {
         CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_DISABLE);
 
-        CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
-
-        if ((ami = OPENSSL_malloc(sizeof(*ami))) == NULL)
+        if (!RUN_ONCE(&memdbg_init, do_memdbg_init)
+            || (ami = OPENSSL_malloc(sizeof(*ami))) == NULL)
             goto err;
 
         ami->threadid = CRYPTO_THREAD_get_current_id();
@@ -382,7 +292,7 @@ int CRYPTO_mem_debug_push(const char *info, const char *file, int line)
         CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ENABLE);
     }
 
-    return (ret);
+    return ret;
 }
 
 int CRYPTO_mem_debug_pop(void)
@@ -394,7 +304,7 @@ int CRYPTO_mem_debug_pop(void)
         ret = pop_info();
         CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ENABLE);
     }
-    return (ret);
+    return ret;
 }
 
 static unsigned long break_order_num = 0;
@@ -415,9 +325,8 @@ void CRYPTO_mem_debug_malloc(void *addr, size_t num, int before_p,
         if (mem_check_on()) {
             CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_DISABLE);
 
-            CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
-
-            if ((m = OPENSSL_malloc(sizeof(*m))) == NULL) {
+            if (!RUN_ONCE(&memdbg_init, do_memdbg_init)
+                || (m = OPENSSL_malloc(sizeof(*m))) == NULL) {
                 OPENSSL_free(addr);
                 CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ENABLE);
                 return;
@@ -534,9 +443,9 @@ void CRYPTO_mem_debug_realloc(void *addr1, void *addr2, size_t num,
 }
 
 typedef struct mem_leak_st {
-    BIO *bio;
+    int (*print_cb) (const char *str, size_t len, void *u);
+    void *print_cb_arg;
     int chunks;
-    int seen;
     long bytes;
 } MEM_LEAK;
 
@@ -544,8 +453,9 @@ static void print_leak(const MEM *m, MEM_LEAK *l)
 {
     char buf[1024];
     char *bufp = buf;
+    size_t len = sizeof(buf), ami_cnt;
     APP_INFO *amip;
-    int ami_cnt;
+    int n;
     struct tm *lcl = NULL;
     /*
      * Convert between CRYPTO_THREAD_ID (which could be anything at all) and
@@ -558,33 +468,38 @@ static void print_leak(const MEM *m, MEM_LEAK *l)
     } tid;
     CRYPTO_THREAD_ID ti;
 
-#define BUF_REMAIN (sizeof buf - (size_t)(bufp - buf))
-
-    /* Is one "leak" the BIO we were given? */
-    if (m->addr == (char *)l->bio) {
-        l->seen = 1;
+    lcl = localtime(&m->time);
+    n = BIO_snprintf(bufp, len, "[%02d:%02d:%02d] ",
+                     lcl->tm_hour, lcl->tm_min, lcl->tm_sec);
+    if (n <= 0) {
+        bufp[0] = '\0';
         return;
     }
+    bufp += n;
+    len -= n;
 
-    lcl = localtime(&m->time);
-    BIO_snprintf(bufp, BUF_REMAIN, "[%02d:%02d:%02d] ",
-                 lcl->tm_hour, lcl->tm_min, lcl->tm_sec);
-    bufp += strlen(bufp);
-
-    BIO_snprintf(bufp, BUF_REMAIN, "%5lu file=%s, line=%d, ",
-                 m->order, m->file, m->line);
-    bufp += strlen(bufp);
+    n = BIO_snprintf(bufp, len, "%5lu file=%s, line=%d, ",
+                     m->order, m->file, m->line);
+    if (n <= 0)
+        return;
+    bufp += n;
+    len -= n;
 
     tid.ltid = 0;
     tid.tid = m->threadid;
-    BIO_snprintf(bufp, BUF_REMAIN, "thread=%lu, ", tid.ltid);
-    bufp += strlen(bufp);
+    n = BIO_snprintf(bufp, len, "thread=%lu, ", tid.ltid);
+    if (n <= 0)
+        return;
+    bufp += n;
+    len -= n;
 
-    BIO_snprintf(bufp, BUF_REMAIN, "number=%d, address=%p\n",
-                 m->num, m->addr);
-    bufp += strlen(bufp);
+    n = BIO_snprintf(bufp, len, "number=%d, address=%p\n", m->num, m->addr);
+    if (n <= 0)
+        return;
+    bufp += n;
+    len -= n;
 
-    BIO_puts(l->bio, buf);
+    l->print_cb(buf, (size_t)(bufp - buf), l->print_cb_arg);
 
     l->chunks++;
     l->bytes += m->num;
@@ -600,25 +515,34 @@ static void print_leak(const MEM *m, MEM_LEAK *l)
             int info_len;
 
             ami_cnt++;
+            if (ami_cnt >= sizeof(buf) - 1)
+                break;
             memset(buf, '>', ami_cnt);
+            buf[ami_cnt] = '\0';
             tid.ltid = 0;
             tid.tid = amip->threadid;
-            BIO_snprintf(buf + ami_cnt, sizeof buf - ami_cnt,
-                         " thread=%lu, file=%s, line=%d, info=\"",
-                         tid.ltid, amip->file,
-                         amip->line);
-            buf_len = strlen(buf);
+            n = BIO_snprintf(buf + ami_cnt, sizeof(buf) - ami_cnt,
+                             " thread=%lu, file=%s, line=%d, info=\"",
+                             tid.ltid, amip->file, amip->line);
+            if (n <= 0)
+                break;
+            buf_len = ami_cnt + n;
             info_len = strlen(amip->info);
             if (128 - buf_len - 3 < info_len) {
                 memcpy(buf + buf_len, amip->info, 128 - buf_len - 3);
                 buf_len = 128 - 3;
             } else {
-                OPENSSL_strlcpy(buf + buf_len, amip->info, sizeof buf - buf_len);
-                buf_len = strlen(buf);
+                n = BIO_snprintf(buf + buf_len, sizeof(buf) - buf_len, "%s",
+                                 amip->info);
+                if (n < 0)
+                    break;
+                buf_len += n;
             }
-            BIO_snprintf(buf + buf_len, sizeof buf - buf_len, "\"\n");
+            n = BIO_snprintf(buf + buf_len, sizeof(buf) - buf_len, "\"\n");
+            if (n <= 0)
+                break;
 
-            BIO_puts(l->bio, buf);
+            l->print_cb(buf, buf_len + n, l->print_cb_arg);
 
             amip = amip->next;
         }
@@ -639,30 +563,32 @@ static void print_leak(const MEM *m, MEM_LEAK *l)
 
 IMPLEMENT_LHASH_DOALL_ARG_CONST(MEM, MEM_LEAK);
 
-int CRYPTO_mem_leaks(BIO *b)
+int CRYPTO_mem_leaks_cb(int (*cb) (const char *str, size_t len, void *u),
+                        void *u)
 {
     MEM_LEAK ml;
 
     /* Ensure all resources are released */
     OPENSSL_cleanup();
 
-    CRYPTO_THREAD_run_once(&memdbg_init, do_memdbg_init);
+    if (!RUN_ONCE(&memdbg_init, do_memdbg_init))
+        return -1;
 
     CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_DISABLE);
 
-    ml.bio = b;
+    ml.print_cb = cb;
+    ml.print_cb_arg = u;
     ml.bytes = 0;
     ml.chunks = 0;
-    ml.seen = 0;
     if (mh != NULL)
         lh_MEM_doall_MEM_LEAK(mh, print_leak, &ml);
-    /* Don't count the BIO that was passed in as a "leak" */
-    if (ml.seen && ml.chunks >= 1 && ml.bytes >= (int)sizeof (*b)) {
-        ml.chunks--;
-        ml.bytes -= (int)sizeof (*b);
-    }
+
     if (ml.chunks != 0) {
-        BIO_printf(b, "%ld bytes leaked in %d chunks\n", ml.bytes, ml.chunks);
+        char buf[256];
+
+        BIO_snprintf(buf, sizeof(buf), "%ld bytes leaked in %d chunks\n",
+                     ml.bytes, ml.chunks);
+        cb(buf, strlen(buf), u);
     } else {
         /*
          * Make sure that, if we found no leaks, memory-leak debugging itself
@@ -699,6 +625,22 @@ int CRYPTO_mem_leaks(BIO *b)
     return ml.chunks == 0 ? 1 : 0;
 }
 
+static int print_bio(const char *str, size_t len, void *b)
+{
+    return BIO_write((BIO *)b, str, len);
+}
+
+int CRYPTO_mem_leaks(BIO *b)
+{
+    /*
+     * OPENSSL_cleanup() will free the ex_data locks so we can't have any
+     * ex_data hanging around
+     */
+    bio_free_ex_data(b);
+
+    return CRYPTO_mem_leaks_cb(print_bio, b);
+}
+
 # ifndef OPENSSL_NO_STDIO
 int CRYPTO_mem_leaks_fp(FILE *fp)
 {
@@ -716,7 +658,7 @@ int CRYPTO_mem_leaks_fp(FILE *fp)
     if (b == NULL)
         return -1;
     BIO_set_fp(b, fp, BIO_NOCLOSE);
-    ret = CRYPTO_mem_leaks(b);
+    ret = CRYPTO_mem_leaks_cb(print_bio, b);
     BIO_free(b);
     return ret;
 }

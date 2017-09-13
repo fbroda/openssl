@@ -1,67 +1,16 @@
 /*
- * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL project
- * 2006.
- */
-/* ====================================================================
- * Copyright (c) 2006 The OpenSSL Project.  All rights reserved.
+ * Copyright 2006-2017 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include "internal/cryptlib.h"
-#ifndef OPENSSL_NO_ENGINE
-# include <openssl/engine.h>
-#endif
+#include <openssl/engine.h>
 #include <openssl/evp.h>
 #include <openssl/x509v3.h>
 #include "internal/asn1_int.h"
@@ -72,6 +21,7 @@ typedef int sk_cmp_fn_type(const char *const *a, const char *const *b);
 
 static STACK_OF(EVP_PKEY_METHOD) *app_pkey_methods = NULL;
 
+/* This array needs to be in order of NIDs */
 static const EVP_PKEY_METHOD *standard_methods[] = {
 #ifndef OPENSSL_NO_RSA
     &rsa_pkey_meth,
@@ -86,12 +36,32 @@ static const EVP_PKEY_METHOD *standard_methods[] = {
     &ec_pkey_meth,
 #endif
     &hmac_pkey_meth,
+#ifndef OPENSSL_NO_CMAC
     &cmac_pkey_meth,
+#endif
+#ifndef OPENSSL_NO_RSA
+    &rsa_pss_pkey_meth,
+#endif
 #ifndef OPENSSL_NO_DH
     &dhx_pkey_meth,
 #endif
+#ifndef OPENSSL_NO_SCRYPT
+    &scrypt_pkey_meth,
+#endif
     &tls1_prf_pkey_meth,
-    &hkdf_pkey_meth
+#ifndef OPENSSL_NO_EC
+    &ecx25519_pkey_meth,
+#endif
+    &hkdf_pkey_meth,
+#ifndef OPENSSL_NO_POLY1305
+    &poly1305_pkey_meth,
+#endif
+#ifndef OPENSSL_NO_SIPHASH
+    &siphash_pkey_meth,
+#endif
+#ifndef OPENSSL_NO_EC
+    &ed25519_pkey_meth,
+#endif
 };
 
 DECLARE_OBJ_BSEARCH_CMP_FN(const EVP_PKEY_METHOD *, const EVP_PKEY_METHOD *,
@@ -179,6 +149,7 @@ static EVP_PKEY_CTX *int_ctx_new(EVP_PKEY *pkey, ENGINE *e, int id)
 
     if (pmeth->init) {
         if (pmeth->init(ret) <= 0) {
+            ret->pmeth = NULL;
             EVP_PKEY_CTX_free(ret);
             return NULL;
         }
@@ -304,6 +275,7 @@ EVP_PKEY_CTX *EVP_PKEY_CTX_dup(EVP_PKEY_CTX *pctx)
     if (pctx->pmeth->copy(rctx, pctx) > 0)
         return rctx;
 
+    rctx->pmeth = NULL;
     EVP_PKEY_CTX_free(rctx);
     return NULL;
 
@@ -320,6 +292,27 @@ int EVP_PKEY_meth_add0(const EVP_PKEY_METHOD *pmeth)
         return 0;
     sk_EVP_PKEY_METHOD_sort(app_pkey_methods);
     return 1;
+}
+
+size_t EVP_PKEY_meth_get_count(void)
+{
+    size_t rv = OSSL_NELEM(standard_methods);
+
+    if (app_pkey_methods)
+        rv += sk_EVP_PKEY_METHOD_num(app_pkey_methods);
+    return rv;
+}
+
+const EVP_PKEY_METHOD *EVP_PKEY_meth_get0(size_t idx)
+{
+    if (idx < OSSL_NELEM(standard_methods))
+        return standard_methods[idx];
+    if (app_pkey_methods == NULL)
+        return NULL;
+    idx -= OSSL_NELEM(standard_methods);
+    if (idx >= (size_t)sk_EVP_PKEY_METHOD_num(app_pkey_methods))
+        return NULL;
+    return sk_EVP_PKEY_METHOD_value(app_pkey_methods, idx);
 }
 
 void EVP_PKEY_CTX_free(EVP_PKEY_CTX *ctx)
@@ -366,6 +359,12 @@ int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
 
 }
 
+int EVP_PKEY_CTX_ctrl_uint64(EVP_PKEY_CTX *ctx, int keytype, int optype,
+                             int cmd, uint64_t value)
+{
+    return EVP_PKEY_CTX_ctrl(ctx, keytype, optype, cmd, 0, &value);
+}
+
 int EVP_PKEY_CTX_ctrl_str(EVP_PKEY_CTX *ctx,
                           const char *name, const char *value)
 {
@@ -373,14 +372,9 @@ int EVP_PKEY_CTX_ctrl_str(EVP_PKEY_CTX *ctx,
         EVPerr(EVP_F_EVP_PKEY_CTX_CTRL_STR, EVP_R_COMMAND_NOT_SUPPORTED);
         return -2;
     }
-    if (strcmp(name, "digest") == 0) {
-        const EVP_MD *md;
-        if (value == NULL || (md = EVP_get_digestbyname(value)) == NULL) {
-            EVPerr(EVP_F_EVP_PKEY_CTX_CTRL_STR, EVP_R_INVALID_DIGEST);
-            return 0;
-        }
-        return EVP_PKEY_CTX_set_signature_md(ctx, md);
-    }
+    if (strcmp(name, "digest") == 0)
+        return EVP_PKEY_CTX_md(ctx, EVP_PKEY_OP_TYPE_SIG, EVP_PKEY_CTRL_MD,
+                               value);
     return ctx->pmeth->ctrl_str(ctx, name, value);
 }
 
@@ -402,13 +396,25 @@ int EVP_PKEY_CTX_hex2ctrl(EVP_PKEY_CTX *ctx, int cmd, const char *hex)
     long binlen;
     int rv = -1;
 
-    bin = string_to_hex(hex, &binlen);
+    bin = OPENSSL_hexstr2buf(hex, &binlen);
     if (bin == NULL)
         return 0;
     if (binlen <= INT_MAX)
         rv = ctx->pmeth->ctrl(ctx, cmd, binlen, bin);
     OPENSSL_free(bin);
     return rv;
+}
+
+/* Pass a message digest to a ctrl */
+int EVP_PKEY_CTX_md(EVP_PKEY_CTX *ctx, int optype, int cmd, const char *md)
+{
+    const EVP_MD *m;
+
+    if (md == NULL || (m = EVP_get_digestbyname(md)) == NULL) {
+        EVPerr(EVP_F_EVP_PKEY_CTX_MD, EVP_R_INVALID_DIGEST);
+        return 0;
+    }
+    return EVP_PKEY_CTX_ctrl(ctx, -1, optype, cmd, 0, (void *)m);
 }
 
 int EVP_PKEY_CTX_get_operation(EVP_PKEY_CTX *ctx)

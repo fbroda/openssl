@@ -1,117 +1,17 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
- */
-/* ====================================================================
- * Copyright (c) 1998-2001 The OpenSSL Project.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #ifndef HEADER_APPS_H
 # define HEADER_APPS_H
 
-# include "e_os.h"
+# include "e_os.h" /* struct timeval for DTLS */
+# include "internal/nelem.h"
 # include <assert.h>
 
 # include <openssl/e_os2.h>
@@ -121,16 +21,9 @@
 # include <openssl/lhash.h>
 # include <openssl/conf.h>
 # include <openssl/txt_db.h>
-# ifndef OPENSSL_NO_ENGINE
-#  include <openssl/engine.h>
-# endif
-# ifndef OPENSSL_NO_OCSP
-#  include <openssl/ocsp.h>
-# endif
-# include <openssl/ossl_typ.h>
-# ifndef OPENSSL_SYS_NETWARE
-#  include <signal.h>
-# endif
+# include <openssl/engine.h>
+# include <openssl/ocsp.h>
+# include <signal.h>
 
 # if defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_WINCE)
 #  define openssl_fdset(a,b) FD_SET((unsigned int)a, b)
@@ -145,23 +38,18 @@
  */
 #define _UC(c) ((unsigned char)(c))
 
-int app_RAND_load_file(const char *file, int dont_warn);
-int app_RAND_write_file(const char *file);
-/*
- * When `file' is NULL, use defaults. `bio_e' is for error messages.
- */
-void app_RAND_allow_write_file(void);
-long app_RAND_load_files(char *file); /* `file' is a list of files to read,
-                                       * separated by LIST_SEPARATOR_CHAR
-                                       * (see e_os.h).  The string is
-                                       * destroyed! */
+void app_RAND_load_conf(CONF *c, const char *section);
+void app_RAND_write(void);
 
 extern char *default_config_file;
 extern BIO *bio_in;
 extern BIO *bio_out;
 extern BIO *bio_err;
+extern const unsigned char tls13_aes128gcmsha256_id[];
+extern const unsigned char tls13_aes256gcmsha384_id[];
 BIO *dup_bio_in(int format);
 BIO *dup_bio_out(int format);
+BIO *dup_bio_err(int format);
 BIO *bio_open_owner(const char *filename, int format, int private);
 BIO *bio_open_default(const char *filename, char mode, int format);
 BIO *bio_open_default_quiet(const char *filename, char mode, int format);
@@ -170,6 +58,13 @@ CONF *app_load_config_quiet(const char *filename);
 int app_load_modules(const CONF *config);
 void unbuffer(FILE *fp);
 void wait_for_async(SSL *s);
+# if defined(OPENSSL_SYS_MSDOS)
+int has_stdin_waiting(void);
+# endif
+
+void corrupt_signature(const ASN1_STRING *signature);
+int set_cert_times(X509 *x, const char *startdate, const char *enddate,
+                   int days);
 
 /*
  * Common verification options.
@@ -185,6 +80,7 @@ void wait_for_async(SSL *s);
         OPT_V_POLICY_PRINT, OPT_V_CHECK_SS_SIG, OPT_V_TRUSTED_FIRST, \
         OPT_V_SUITEB_128_ONLY, OPT_V_SUITEB_128, OPT_V_SUITEB_192, \
         OPT_V_PARTIAL_CHAIN, OPT_V_NO_ALT_CHAINS, OPT_V_NO_CHECK_TIME, \
+        OPT_V_VERIFY_AUTH_LEVEL, OPT_V_ALLOW_PROXY_CERTS, \
         OPT_V__LAST
 
 # define OPT_V_OPTIONS \
@@ -192,8 +88,10 @@ void wait_for_async(SSL *s);
         { "purpose", OPT_V_PURPOSE, 's', \
             "certificate chain purpose"}, \
         { "verify_name", OPT_V_VERIFY_NAME, 's', "verification policy name"}, \
-        { "verify_depth", OPT_V_VERIFY_DEPTH, 'p', \
-            "chain depth limit"}, \
+        { "verify_depth", OPT_V_VERIFY_DEPTH, 'n', \
+            "chain depth limit" }, \
+        { "auth_level", OPT_V_VERIFY_AUTH_LEVEL, 'n', \
+            "chain authentication security level" }, \
         { "attime", OPT_V_ATTIME, 'M', "verification epoch time" }, \
         { "verify_hostname", OPT_V_VERIFY_HOSTNAME, 's', \
             "expected peer hostname" }, \
@@ -210,9 +108,9 @@ void wait_for_async(SSL *s);
         { "explicit_policy", OPT_V_EXPLICIT_POLICY, '-', \
             "set policy variable require-explicit-policy"}, \
         { "inhibit_any", OPT_V_INHIBIT_ANY, '-', \
-            "set policy variable inihibit-any-policy"}, \
+            "set policy variable inhibit-any-policy"}, \
         { "inhibit_map", OPT_V_INHIBIT_MAP, '-', \
-            "set policy variable inihibit-policy-mapping"}, \
+            "set policy variable inhibit-policy-mapping"}, \
         { "x509_strict", OPT_V_X509_STRICT, '-', \
             "disable certificate compatibility work-arounds"}, \
         { "extended_crl", OPT_V_EXTENDED_CRL, '-', \
@@ -232,7 +130,8 @@ void wait_for_async(SSL *s);
         { "partial_chain", OPT_V_PARTIAL_CHAIN, '-', \
             "accept chains anchored by intermediate trust-store CAs"}, \
         { "no_alt_chains", OPT_V_NO_ALT_CHAINS, '-', "(deprecated)" }, \
-        { "no_check_time", OPT_V_NO_CHECK_TIME, '-', "ignore certificate validity time" }
+        { "no_check_time", OPT_V_NO_CHECK_TIME, '-', "ignore certificate validity time" }, \
+        { "allow_proxy_certs", OPT_V_ALLOW_PROXY_CERTS, '-', "allow the use of proxy certificates" }
 
 # define OPT_V_CASES \
         OPT_V__FIRST: case OPT_V__LAST: break; \
@@ -240,6 +139,7 @@ void wait_for_async(SSL *s);
         case OPT_V_PURPOSE: \
         case OPT_V_VERIFY_NAME: \
         case OPT_V_VERIFY_DEPTH: \
+        case OPT_V_VERIFY_AUTH_LEVEL: \
         case OPT_V_ATTIME: \
         case OPT_V_VERIFY_HOSTNAME: \
         case OPT_V_VERIFY_EMAIL: \
@@ -263,10 +163,11 @@ void wait_for_async(SSL *s);
         case OPT_V_SUITEB_192: \
         case OPT_V_PARTIAL_CHAIN: \
         case OPT_V_NO_ALT_CHAINS: \
-        case OPT_V_NO_CHECK_TIME
+        case OPT_V_NO_CHECK_TIME: \
+        case OPT_V_ALLOW_PROXY_CERTS
 
 /*
- * Common "extended"? options.
+ * Common "extended validation" options.
  */
 # define OPT_X_ENUM \
         OPT_X__FIRST=1000, \
@@ -283,7 +184,7 @@ void wait_for_async(SSL *s);
         { "xcertform", OPT_X_CERTFORM, 'F', \
             "format of Extended certificate (PEM or DER) PEM default " }, \
         { "xkeyform", OPT_X_KEYFORM, 'F', \
-            "format of Exnteded certificate's key (PEM or DER) PEM default"}
+            "format of Extended certificate's key (PEM or DER) PEM default"}
 
 # define OPT_X_CASES \
         OPT_X__FIRST: case OPT_X__LAST: break; \
@@ -301,18 +202,20 @@ void wait_for_async(SSL *s);
 # define OPT_S_ENUM \
         OPT_S__FIRST=3000, \
         OPT_S_NOSSL3, OPT_S_NOTLS1, OPT_S_NOTLS1_1, OPT_S_NOTLS1_2, \
-        OPT_S_BUGS, OPT_S_NO_COMP, OPT_S_NOTICKET, \
+        OPT_S_NOTLS1_3, OPT_S_BUGS, OPT_S_NO_COMP, OPT_S_NOTICKET, \
         OPT_S_SERVERPREF, OPT_S_LEGACYRENEG, OPT_S_LEGACYCONN, \
-        OPT_S_ONRESUMP, OPT_S_NOLEGACYCONN, OPT_S_STRICT, OPT_S_SIGALGS, \
-        OPT_S_CLIENTSIGALGS, OPT_S_CURVES, OPT_S_NAMEDCURVE, OPT_S_CIPHER, \
-        OPT_S_DHPARAM, OPT_S_DEBUGBROKE, OPT_S_COMP, \
-        OPT_S__LAST
+        OPT_S_ONRESUMP, OPT_S_NOLEGACYCONN, OPT_S_ALLOW_NO_DHE_KEX, \
+        OPT_S_STRICT, OPT_S_SIGALGS, OPT_S_CLIENTSIGALGS, OPT_S_GROUPS, \
+        OPT_S_CURVES, OPT_S_NAMEDCURVE, OPT_S_CIPHER, OPT_S_DHPARAM, \
+        OPT_S_RECORD_PADDING, OPT_S_DEBUGBROKE, OPT_S_COMP, \
+        OPT_S_NO_RENEGOTIATION, OPT_S__LAST
 
 # define OPT_S_OPTIONS \
         {"no_ssl3", OPT_S_NOSSL3, '-',"Just disable SSLv3" }, \
         {"no_tls1", OPT_S_NOTLS1, '-', "Just disable TLSv1"}, \
         {"no_tls1_1", OPT_S_NOTLS1_1, '-', "Just disable TLSv1.1" }, \
         {"no_tls1_2", OPT_S_NOTLS1_2, '-', "Just disable TLSv1.2"}, \
+        {"no_tls1_3", OPT_S_NOTLS1_3, '-', "Just disable TLSv1.3"}, \
         {"bugs", OPT_S_BUGS, '-', "Turn on SSL bug compatibility"}, \
         {"no_comp", OPT_S_NO_COMP, '-', "Disable SSL/TLS compression (default)" }, \
         {"comp", OPT_S_COMP, '-', "Use SSL/TLS-level compression" }, \
@@ -321,12 +224,16 @@ void wait_for_async(SSL *s);
         {"serverpref", OPT_S_SERVERPREF, '-', "Use server's cipher preferences"}, \
         {"legacy_renegotiation", OPT_S_LEGACYRENEG, '-', \
             "Enable use of legacy renegotiation (dangerous)"}, \
+        {"no_renegotiation", OPT_S_NO_RENEGOTIATION, '-', \
+            "Disable all renegotiation."}, \
         {"legacy_server_connect", OPT_S_LEGACYCONN, '-', \
             "Allow initial connection to servers that don't support RI"}, \
         {"no_resumption_on_reneg", OPT_S_ONRESUMP, '-', \
             "Disallow session resumption on renegotiation"}, \
         {"no_legacy_server_connect", OPT_S_NOLEGACYCONN, '-', \
             "Disallow initial connection to servers that don't support RI"}, \
+        {"allow_no_dhe_kex", OPT_S_ALLOW_NO_DHE_KEX, '-', \
+            "In TLSv1.3 allow non-(ec)dhe based key exchange on resumption"}, \
         {"strict", OPT_S_STRICT, '-', \
             "Enforce strict certificate checks as per TLS standard"}, \
         {"sigalgs", OPT_S_SIGALGS, 's', \
@@ -334,15 +241,20 @@ void wait_for_async(SSL *s);
         {"client_sigalgs", OPT_S_CLIENTSIGALGS, 's', \
             "Signature algorithms to support for client certificate" \
             " authentication (colon-separated list)" }, \
+        {"groups", OPT_S_GROUPS, 's', \
+            "Groups to advertise (colon-separated list)" }, \
         {"curves", OPT_S_CURVES, 's', \
-            "Elliptic curves to advertise (colon-separated list)" }, \
+            "Groups to advertise (colon-separated list)" }, \
         {"named_curve", OPT_S_NAMEDCURVE, 's', \
             "Elliptic curve used for ECDHE (server-side only)" }, \
         {"cipher", OPT_S_CIPHER, 's', "Specify cipher list to be used"}, \
         {"dhparam", OPT_S_DHPARAM, '<', \
             "DH parameter file to use, in cert file if not specified"}, \
+        {"record_padding", OPT_S_RECORD_PADDING, 's', \
+            "Block size to pad TLS 1.3 records to."}, \
         {"debug_broken_protocol", OPT_S_DEBUGBROKE, '-', \
             "Perform all sorts of protocol violations for testing purposes"}
+
 
 # define OPT_S_CASES \
         OPT_S__FIRST: case OPT_S__LAST: break; \
@@ -350,6 +262,7 @@ void wait_for_async(SSL *s);
         case OPT_S_NOTLS1: \
         case OPT_S_NOTLS1_1: \
         case OPT_S_NOTLS1_2: \
+        case OPT_S_NOTLS1_3: \
         case OPT_S_BUGS: \
         case OPT_S_NO_COMP: \
         case OPT_S_COMP: \
@@ -359,14 +272,36 @@ void wait_for_async(SSL *s);
         case OPT_S_LEGACYCONN: \
         case OPT_S_ONRESUMP: \
         case OPT_S_NOLEGACYCONN: \
+        case OPT_S_ALLOW_NO_DHE_KEX: \
         case OPT_S_STRICT: \
         case OPT_S_SIGALGS: \
         case OPT_S_CLIENTSIGALGS: \
+        case OPT_S_GROUPS: \
         case OPT_S_CURVES: \
         case OPT_S_NAMEDCURVE: \
         case OPT_S_CIPHER: \
         case OPT_S_DHPARAM: \
+        case OPT_S_RECORD_PADDING: \
+        case OPT_S_NO_RENEGOTIATION: \
         case OPT_S_DEBUGBROKE
+
+#define IS_NO_PROT_FLAG(o) \
+ (o == OPT_S_NOSSL3 || o == OPT_S_NOTLS1 || o == OPT_S_NOTLS1_1 \
+  || o == OPT_S_NOTLS1_2 || o == OPT_S_NOTLS1_3)
+
+/*
+ * Random state options.
+ */
+# define OPT_R_ENUM \
+        OPT_R__FIRST=1500, OPT_R_RAND, OPT_R_WRITERAND, OPT_R__LAST
+
+# define OPT_R_OPTIONS \
+    {"rand", OPT_R_RAND, 's', "Load the file(s) into the random number generator"}, \
+    {"writerand", OPT_R_WRITERAND, '>', "Write random data to the specified file"}
+
+# define OPT_R_CASES \
+        OPT_R__FIRST: case OPT_R__LAST: break; \
+        case OPT_R_RAND: case OPT_R_WRITERAND
 
 /*
  * Option parsing.
@@ -379,7 +314,7 @@ typedef struct options_st {
     /*
      * value type: - no value (also the value zero), n number, p positive
      * number, u unsigned, l long, s string, < input file, > output file,
-     * f any format, F der/pem format , E der/pem/engine format identifier.
+     * f any format, F der/pem format, E der/pem/engine format identifier.
      * l, n and u include zero; p does not.
      */
     int valtype;
@@ -408,6 +343,7 @@ typedef struct string_int_pair_st {
 # define OPT_FMT_HTTP            (1L <<  9)
 # define OPT_FMT_PVK             (1L << 10)
 # define OPT_FMT_PDE     (OPT_FMT_PEMDER | OPT_FMT_ENGINE)
+# define OPT_FMT_PDS     (OPT_FMT_PEMDER | OPT_FMT_SMIME)
 # define OPT_FMT_ANY     ( \
         OPT_FMT_PEMDER | OPT_FMT_PKCS12 | OPT_FMT_SMIME | \
         OPT_FMT_ENGINE | OPT_FMT_MSBLOB | OPT_FMT_NETSCAPE | \
@@ -437,10 +373,10 @@ int opt_md(const char *name, const EVP_MD **mdp);
 char *opt_arg(void);
 char *opt_flag(void);
 char *opt_unknown(void);
-char *opt_reset(void);
 char **opt_rest(void);
 int opt_num_rest(void);
 int opt_verify(int i, X509_VERIFY_PARAM *vpm);
+int opt_rand(int i);
 void opt_help(const OPTIONS * list);
 int opt_format_error(const char *s, unsigned long flags);
 
@@ -449,6 +385,19 @@ typedef struct args_st {
     int argc;
     char **argv;
 } ARGS;
+
+/*
+ * VMS C only for now, implemented in vms_decc_init.c
+ * If other C compilers forget to terminate argv with NULL, this function
+ * can be re-used.
+ */
+char **copy_argv(int *argc, char *argv[]);
+/*
+ * Win32-specific argv initialization that splits OS-supplied UNICODE
+ * command line string to array of UTF8-encoded strings.
+ */
+void win32_utf8argv(int *argc, char **argv[]);
+
 
 # define PW_MIN_LENGTH 4
 typedef struct pw_cb_data {
@@ -460,6 +409,7 @@ int password_callback(char *buf, int bufsiz, int verify, PW_CB_DATA *cb_data);
 
 int setup_ui_method(void);
 void destroy_ui_method(void);
+const UI_METHOD *get_ui_method(void);
 
 int chopup_args(ARGS *arg, char *buf);
 # ifdef HEADER_X509_H
@@ -467,13 +417,16 @@ int dump_cert_text(BIO *out, X509 *x);
 void print_name(BIO *out, const char *title, X509_NAME *nm,
                 unsigned long lflags);
 # endif
-void print_bignum_var(BIO *, BIGNUM *, const char*, int, unsigned char *);
+void print_bignum_var(BIO *, const BIGNUM *, const char*,
+                      int, unsigned char *);
 void print_array(BIO *, const char *, int, const unsigned char *);
+int set_nameopt(const char *arg);
+unsigned long get_nameopt(void);
 int set_cert_ex(unsigned long *flags, const char *arg);
 int set_name_ex(unsigned long *flags, const char *arg);
 int set_ext_copy(int *copy_type, const char *arg);
 int copy_extensions(X509 *x, X509_REQ *req, int copy_type);
-int app_passwd(char *arg1, char *arg2, char **pass1, char **pass2);
+int app_passwd(const char *arg1, const char *arg2, char **pass1, char **pass2);
 int add_oid_section(CONF *conf);
 X509 *load_cert(const char *file, int format, const char *cert_descrip);
 X509_CRL *load_crl(const char *infile, int format);
@@ -485,7 +438,7 @@ int load_certs(const char *file, STACK_OF(X509) **certs, int format,
                const char *pass, const char *cert_descrip);
 int load_crls(const char *file, STACK_OF(X509_CRL) **crls, int format,
               const char *pass, const char *cert_descrip);
-X509_STORE *setup_verify(char *CAfile, char *CApath,
+X509_STORE *setup_verify(const char *CAfile, const char *CApath,
                          int noCAfile, int noCApath);
 __owur int ctx_set_verify_locations(SSL_CTX *ctx, const char *CAfile,
                                     const char *CApath, int noCAfile,
@@ -502,11 +455,9 @@ __owur int ctx_set_ctlog_list_file(SSL_CTX *ctx, const char *path);
 
 #endif
 
-# ifdef OPENSSL_NO_ENGINE
-#  define setup_engine(engine, debug) NULL
-# else
 ENGINE *setup_engine(const char *engine, int debug);
-# endif
+void release_engine(ENGINE *e);
+
 # ifndef OPENSSL_NO_OCSP
 OCSP_RESPONSE *process_responder(OCSP_REQUEST *req,
                                  const char *host, const char *path,
@@ -528,9 +479,10 @@ int unpack_revinfo(ASN1_TIME **prevtm, int *preason, ASN1_OBJECT **phold,
                                  * disabled */
 # define DB_NUMBER       6
 
-# define DB_TYPE_REV     'R'
-# define DB_TYPE_EXP     'E'
-# define DB_TYPE_VAL     'V'
+# define DB_TYPE_REV     'R'    /* Revoked  */
+# define DB_TYPE_EXP     'E'    /* Expired  */
+# define DB_TYPE_VAL     'V'    /* Valid ; inserted with: ca ... -valid */
+# define DB_TYPE_SUSP    'S'    /* Suspended  */
 
 typedef struct db_attr_st {
     int unique_subject;
@@ -541,12 +493,13 @@ typedef struct ca_db_st {
 } CA_DB;
 
 void* app_malloc(int sz, const char *what);
-BIGNUM *load_serial(char *serialfile, int create, ASN1_INTEGER **retai);
-int save_serial(char *serialfile, char *suffix, BIGNUM *serial,
+BIGNUM *load_serial(const char *serialfile, int create, ASN1_INTEGER **retai);
+int save_serial(const char *serialfile, const char *suffix, const BIGNUM *serial,
                 ASN1_INTEGER **retai);
-int rotate_serial(char *serialfile, char *new_suffix, char *old_suffix);
+int rotate_serial(const char *serialfile, const char *new_suffix,
+                  const char *old_suffix);
 int rand_serial(BIGNUM *b, ASN1_INTEGER *ai);
-CA_DB *load_index(char *dbfile, DB_ATTR *dbattr);
+CA_DB *load_index(const char *dbfile, DB_ATTR *dbattr);
 int index_index(CA_DB *db);
 int save_index(const char *dbfile, const char *suffix, CA_DB *db);
 int rotate_index(const char *dbfile, const char *new_suffix,
@@ -559,8 +512,6 @@ int index_name_cmp(const OPENSSL_CSTRING *a, const OPENSSL_CSTRING *b);
 int parse_yesno(const char *str, int def);
 
 X509_NAME *parse_name(const char *str, long chtype, int multirdn);
-int args_verify(char ***pargs, int *pargc,
-                int *badarg, X509_VERIFY_PARAM **pm);
 void policies_print(X509_STORE_CTX *ctx);
 int bio_to_mem(unsigned char **out, int maxlen, BIO *in);
 int pkey_ctrl_string(EVP_PKEY_CTX *ctx, const char *value);
@@ -572,9 +523,9 @@ int do_X509_REQ_sign(X509_REQ *x, EVP_PKEY *pkey, const EVP_MD *md,
                      STACK_OF(OPENSSL_STRING) *sigopts);
 int do_X509_CRL_sign(X509_CRL *x, EVP_PKEY *pkey, const EVP_MD *md,
                      STACK_OF(OPENSSL_STRING) *sigopts);
-# ifndef OPENSSL_NO_PSK
+
 extern char *psk_key;
-# endif
+
 
 unsigned char *next_protos_parse(size_t *outlen, const char *in);
 
@@ -615,11 +566,17 @@ void store_setup_crl_download(X509_STORE *st);
 
 # define APP_PASS_LEN    1024
 
-# define SERIAL_RAND_BITS        64
+/*
+ * IETF RFC 5280 says serial number must be <= 20 bytes. Use 159 bits
+ * so that the first bit will never be one, so that the DER encoding
+ * rules won't force a leading octet.
+ */
+# define SERIAL_RAND_BITS        159
 
-int app_hex(char);
 int app_isdir(const char *);
 int app_access(const char *, int flag);
+int fileno_stdin(void);
+int fileno_stdout(void);
 int raw_read_stdin(void *, int);
 int raw_write_stdout(const void *, int);
 
@@ -627,11 +584,16 @@ int raw_write_stdout(const void *, int);
 # define TM_STOP         1
 double app_tminterval(int stop, int usertime);
 
-/* this is an accident waiting to happen (-Wshadow is your friend) */
-extern int verify_depth;
-extern int verify_quiet;
-extern int verify_error;
-extern int verify_return_error;
+void make_uppercase(char *string);
+
+typedef struct verify_options_st {
+    int depth;
+    int quiet;
+    int error;
+    int return_error;
+} VERIFY_CB_ARGS;
+
+extern VERIFY_CB_ARGS verify_args;
 
 # include "progs.h"
 

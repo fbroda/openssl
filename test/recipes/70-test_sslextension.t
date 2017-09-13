@@ -1,56 +1,10 @@
-#!/usr/bin/perl
-# Written by Matt Caswell for the OpenSSL project.
-# ====================================================================
-# Copyright (c) 1998-2015 The OpenSSL Project.  All rights reserved.
+#! /usr/bin/env perl
+# Copyright 2015-2016 The OpenSSL Project Authors. All Rights Reserved.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-# 1. Redistributions of source code must retain the above copyright
-#    notice, this list of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright
-#    notice, this list of conditions and the following disclaimer in
-#    the documentation and/or other materials provided with the
-#    distribution.
-#
-# 3. All advertising materials mentioning features or use of this
-#    software must display the following acknowledgment:
-#    "This product includes software developed by the OpenSSL Project
-#    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
-#
-# 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
-#    endorse or promote products derived from this software without
-#    prior written permission. For written permission, please contact
-#    openssl-core@openssl.org.
-#
-# 5. Products derived from this software may not be called "OpenSSL"
-#    nor may "OpenSSL" appear in their names without prior written
-#    permission of the OpenSSL Project.
-#
-# 6. Redistributions of any form whatsoever must retain the following
-#    acknowledgment:
-#    "This product includes software developed by the OpenSSL Project
-#    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
-#
-# THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
-# EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
-# ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-# NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
-# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
-# OF THE POSSIBILITY OF SUCH DAMAGE.
-# ====================================================================
-#
-# This product includes cryptographic software written by Eric Young
-# (eay@cryptsoft.com).  This product includes software written by Tim
-# Hudson (tjh@cryptsoft.com).
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
 
 use strict;
 use OpenSSL::Test qw/:DEFAULT cmdstr srctop_file bldtop_dir/;
@@ -66,24 +20,45 @@ plan skip_all => "TLSProxy isn't usable on $^O"
 plan skip_all => "$test_name needs the dynamic engine feature enabled"
     if disabled("engine") || disabled("dynamic-engine");
 
-$ENV{OPENSSL_ENGINES} = bldtop_dir("engines");
+plan skip_all => "$test_name needs the sock feature enabled"
+    if disabled("sock");
+
+plan skip_all => "$test_name needs TLS enabled"
+    if alldisabled(available_protocols("tls"));
+
+use constant {
+    UNSOLICITED_SERVER_NAME => 0,
+    UNSOLICITED_SERVER_NAME_TLS13 => 1,
+    UNSOLICITED_SCT => 2
+};
+
+my $testtype;
+
 $ENV{OPENSSL_ia32cap} = '~0x200000200000000';
 my $proxy = TLSProxy::Proxy->new(
     \&extension_filter,
-    cmdstr(app(["openssl"])),
+    cmdstr(app(["openssl"]), display => 1),
     srctop_file("apps", "server.pem"),
     (!$ENV{HARNESS_ACTIVE} || $ENV{HARNESS_VERBOSE})
 );
 
-plan tests => 3;
-
 # Test 1: Sending a zero length extension block should pass
-$proxy->start();
+$proxy->start() or plan skip_all => "Unable to start up Proxy for tests";
+plan tests => 6;
 ok(TLSProxy::Message->success, "Zero extension length test");
 
 sub extension_filter
 {
     my $proxy = shift;
+
+    if ($proxy->flight == 1) {
+        # Change the ServerRandom so that the downgrade sentinel doesn't cause
+        # the connection to fail
+        my $message = ${$proxy->message_list}[1];
+        $message->random("\0"x32);
+        $message->repack();
+        return;
+    }
 
     # We're only interested in the initial ClientHello
     if ($proxy->flight != 0) {
@@ -153,3 +128,66 @@ $proxy->filter(\&inject_duplicate_extension_serverhello);
 $proxy->start();
 ok(TLSProxy::Message->fail(), "Duplicate ServerHello extension");
 
+sub inject_unsolicited_extension
+{
+    my $proxy = shift;
+    my $message;
+
+    # We're only interested in the initial ServerHello/EncryptedExtensions
+    if ($proxy->flight != 1) {
+        return;
+    }
+
+    if ($testtype == UNSOLICITED_SERVER_NAME_TLS13) {
+        $message = ${$proxy->message_list}[2];
+        die "Expecting EE message ".($message->mt).", ".${$proxy->message_list}[1]->mt.", ".${$proxy->message_list}[3]->mt if $message->mt != TLSProxy::Message::MT_ENCRYPTED_EXTENSIONS;
+    } else {
+        $message = ${$proxy->message_list}[1];
+    }
+
+    my $ext = pack "C2",
+        0x00, 0x00; #Extension length
+
+    my $type;
+    if ($testtype == UNSOLICITED_SERVER_NAME
+            || $testtype == UNSOLICITED_SERVER_NAME_TLS13) {
+        $type = TLSProxy::Message::EXT_SERVER_NAME;
+    } elsif ($testtype == UNSOLICITED_SCT) {
+        $type = TLSProxy::Message::EXT_SCT;
+    }
+    $message->set_extension($type, $ext);
+    $message->repack();
+}
+
+SKIP: {
+    skip "TLS <= 1.2 disabled", 1 if alldisabled(("tls1", "tls1_1", "tls1_2"));
+    #Test 4: Inject an unsolicited extension (<= TLSv1.2)
+    $proxy->clear();
+    $proxy->filter(\&inject_unsolicited_extension);
+    $testtype = UNSOLICITED_SERVER_NAME;
+    $proxy->clientflags("-no_tls1_3 -noservername");
+    $proxy->start();
+    ok(TLSProxy::Message->fail(), "Unsolicited server name extension");
+}
+
+SKIP: {
+    skip "TLS <= 1.2 or CT disabled", 1
+        if alldisabled(("tls1", "tls1_1", "tls1_2")) || disabled("ct");
+    #Test 5: Same as above for the SCT extension which has special handling
+    $proxy->clear();
+    $testtype = UNSOLICITED_SCT;
+    $proxy->clientflags("-no_tls1_3");
+    $proxy->start();
+    ok(TLSProxy::Message->fail(), "Unsolicited sct extension");
+}
+
+SKIP: {
+    skip "TLS 1.3 disabled", 1 if disabled("tls1_3");
+    #Test 6: Inject an unsolicited extension (TLSv1.3)
+    $proxy->clear();
+    $proxy->filter(\&inject_unsolicited_extension);
+    $testtype = UNSOLICITED_SERVER_NAME_TLS13;
+    $proxy->clientflags("-noservername");
+    $proxy->start();
+    ok(TLSProxy::Message->fail(), "Unsolicited server name extension (TLSv1.3)");
+}

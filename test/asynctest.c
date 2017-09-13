@@ -1,80 +1,20 @@
 /*
- * Written by Matt Caswell for the OpenSSL project.
+ * Copyright 2015-2016 The OpenSSL Project Authors. All Rights Reserved.
+ *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
-/* ====================================================================
- * Copyright (c) 2015 The OpenSSL Project.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
- */
+
+#ifdef _WIN32
+# include <windows.h>
+#endif
 
 #include <stdio.h>
 #include <string.h>
 #include <openssl/async.h>
 #include <openssl/crypto.h>
-#include <../apps/apps.h>
-
-#if (defined(OPENSSL_SYS_UNIX) || defined(OPENSSL_SYS_CYGWIN)) && defined(OPENSSL_THREADS)
-# include <unistd.h>
-# if _POSIX_VERSION >= 200112L
-#  define ASYNC_POSIX
-# endif
-#elif defined(_WIN32)
-# define ASYNC_WIN
-#endif
-
-#if !defined(ASYNC_POSIX) && !defined(ASYNC_WIN)
-# define ASYNC_NULL
-#endif
-
-#ifndef ASYNC_NULL
 
 static int ctr = 0;
 static ASYNC_JOB *currjob = NULL;
@@ -108,17 +48,29 @@ static int waitfd(void *args)
 {
     ASYNC_JOB *job;
     ASYNC_WAIT_CTX *waitctx;
-    ASYNC_pause_job();
     job = ASYNC_get_current_job();
     if (job == NULL)
         return 0;
     waitctx = ASYNC_get_wait_ctx(job);
     if (waitctx == NULL)
         return 0;
-    if(!ASYNC_WAIT_CTX_set_wait_fd(waitctx, waitctx, MAGIC_WAIT_FD, NULL, NULL))
+
+    /* First case: no fd added or removed */
+    ASYNC_pause_job();
+
+    /* Second case: one fd added */
+    if (!ASYNC_WAIT_CTX_set_wait_fd(waitctx, waitctx, MAGIC_WAIT_FD, NULL, NULL))
         return 0;
     ASYNC_pause_job();
 
+    /* Third case: all fd removed */
+    if (!ASYNC_WAIT_CTX_clear_fd(waitctx, waitctx))
+        return 0;
+    ASYNC_pause_job();
+
+    /* Last case: fd added and immediately removed */
+    if (!ASYNC_WAIT_CTX_set_wait_fd(waitctx, waitctx, MAGIC_WAIT_FD, NULL, NULL))
+        return 0;
     if (!ASYNC_WAIT_CTX_clear_fd(waitctx, waitctx))
         return 0;
 
@@ -254,15 +206,15 @@ static int test_ASYNC_WAIT_CTX_get_all_fds()
             || fd != MAGIC_WAIT_FD
             || (fd = OSSL_BAD_ASYNC_FD, 0) /* Assign to something else */
             || !ASYNC_WAIT_CTX_get_changed_fds(waitctx, NULL, &numfds, NULL,
-                                              &numdelfds)
+                                               &numdelfds)
             || numfds != 1
             || numdelfds != 0
             || !ASYNC_WAIT_CTX_get_changed_fds(waitctx, &fd, &numfds, NULL,
                                                &numdelfds)
             || fd != MAGIC_WAIT_FD
-               /* On final run we expect one deleted fd */
+               /* On third run we expect one deleted fd */
             || ASYNC_start_job(&job, waitctx, &funcret, waitfd, NULL, 0)
-                != ASYNC_FINISH
+                != ASYNC_PAUSE
             || !ASYNC_WAIT_CTX_get_all_fds(waitctx, NULL, &numfds)
             || numfds != 0
             || !ASYNC_WAIT_CTX_get_changed_fds(waitctx, NULL, &numfds, NULL,
@@ -272,6 +224,15 @@ static int test_ASYNC_WAIT_CTX_get_all_fds()
             || !ASYNC_WAIT_CTX_get_changed_fds(waitctx, NULL, &numfds, &delfd,
                                                &numdelfds)
             || delfd != MAGIC_WAIT_FD
+            /* On last run we are not expecting any wait fd */
+            || ASYNC_start_job(&job, waitctx, &funcret, waitfd, NULL, 0)
+                != ASYNC_FINISH
+            || !ASYNC_WAIT_CTX_get_all_fds(waitctx, NULL, &numfds)
+            || numfds != 0
+            || !ASYNC_WAIT_CTX_get_changed_fds(waitctx, NULL, &numfds, NULL,
+                                               &numdelfds)
+            || numfds != 0
+            || numdelfds != 0
             || funcret != 1) {
         fprintf(stderr, "test_ASYNC_get_wait_fd() failed\n");
         ASYNC_WAIT_CTX_free(waitctx);
@@ -308,25 +269,23 @@ static int test_ASYNC_block_pause()
     return 1;
 }
 
-#endif
-
 int main(int argc, char **argv)
 {
+    if (!ASYNC_is_capable()) {
+        fprintf(stderr,
+                "OpenSSL build is not ASYNC capable - skipping async tests\n");
+    } else {
+        CRYPTO_set_mem_debug(1);
+        CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ON);
 
-#ifdef ASYNC_NULL
-    fprintf(stderr, "NULL implementation - skipping async tests\n");
-#else
-    CRYPTO_set_mem_debug(1);
-    CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ON);
-
-    if (       !test_ASYNC_init_thread()
-            || !test_ASYNC_start_job()
-            || !test_ASYNC_get_current_job()
-            || !test_ASYNC_WAIT_CTX_get_all_fds()
-            || !test_ASYNC_block_pause()) {
-        return 1;
+        if (       !test_ASYNC_init_thread()
+                || !test_ASYNC_start_job()
+                || !test_ASYNC_get_current_job()
+                || !test_ASYNC_WAIT_CTX_get_all_fds()
+                || !test_ASYNC_block_pause()) {
+            return 1;
+        }
     }
-#endif
     printf("PASS\n");
     return 0;
 }

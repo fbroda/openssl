@@ -1,66 +1,17 @@
 /*
- * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL project
- * 2006.
- */
-/* ====================================================================
- * Copyright (c) 2006 The OpenSSL Project.  All rights reserved.
+ * Copyright 2001-2017 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.OpenSSL.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    licensing@OpenSSL.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.OpenSSL.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
+#include "e_os.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
+#include "internal/ctype.h"
 #include <string.h>
-#include "e_os.h"
 #include <openssl/asn1.h>
 #include <openssl/ocsp.h>
 #include <openssl/err.h>
@@ -258,7 +209,7 @@ static int parse_http_line1(char *line)
     char *p, *q, *r;
     /* Skip to first white space (passed protocol info) */
 
-    for (p = line; *p && !isspace((unsigned char)*p); p++)
+    for (p = line; *p && !ossl_isspace(*p); p++)
         continue;
     if (!*p) {
         OCSPerr(OCSP_F_PARSE_HTTP_LINE1, OCSP_R_SERVER_RESPONSE_PARSE_ERROR);
@@ -266,7 +217,7 @@ static int parse_http_line1(char *line)
     }
 
     /* Skip past white space to start of response code */
-    while (*p && isspace((unsigned char)*p))
+    while (*p && ossl_isspace(*p))
         p++;
 
     if (!*p) {
@@ -275,7 +226,7 @@ static int parse_http_line1(char *line)
     }
 
     /* Find end of response code: first whitespace after start of code */
-    for (q = p; *q && !isspace((unsigned char)*q); q++)
+    for (q = p; *q && !ossl_isspace(*q); q++)
         continue;
 
     if (!*q) {
@@ -293,7 +244,7 @@ static int parse_http_line1(char *line)
         return 0;
 
     /* Skip over any leading white space in message */
-    while (*q && isspace((unsigned char)*q))
+    while (*q && ossl_isspace(*q))
         q++;
 
     if (*q) {
@@ -302,7 +253,7 @@ static int parse_http_line1(char *line)
          */
 
         /* We know q has a non white space character so this is OK */
-        for (r = q + strlen(q) - 1; isspace((unsigned char)*r); r--)
+        for (r = q + strlen(q) - 1; ossl_isspace(*r); r--)
             *r = 0;
     }
     if (retcode != 200) {
@@ -347,10 +298,12 @@ int OCSP_REQ_CTX_nbio(OCSP_REQ_CTX *rctx)
         }
         rctx->state = OHS_ASN1_WRITE_INIT;
 
+        /* fall thru */
     case OHS_ASN1_WRITE_INIT:
         rctx->asn1_len = BIO_get_mem_data(rctx->mem, NULL);
         rctx->state = OHS_ASN1_WRITE;
 
+        /* fall thru */
     case OHS_ASN1_WRITE:
         n = BIO_get_mem_data(rctx->mem, &p);
 
@@ -372,6 +325,7 @@ int OCSP_REQ_CTX_nbio(OCSP_REQ_CTX *rctx)
 
         (void)BIO_reset(rctx->mem);
 
+        /* fall thru */
     case OHS_ASN1_FLUSH:
 
         i = BIO_flush(rctx->io);

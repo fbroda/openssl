@@ -1,147 +1,178 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
- * All rights reserved.
+/*
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
- * This package is an SSL implementation written
- * by Eric Young (eay@cryptsoft.com).
- * The implementation was written so as to conform with Netscapes SSL.
- *
- * This library is free for commercial and non-commercial use as long as
- * the following conditions are aheared to.  The following conditions
- * apply to all code found in this distribution, be it the RC4, RSA,
- * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
- * included with this distribution is covered by the same copyright terms
- * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- *
- * Copyright remains Eric Young's, and as such any Copyright notices in
- * the code are not to be removed.
- * If this package is used in a product, Eric Young should be given attribution
- * as the author of the parts of the library used.
- * This can be in the form of a textual message at program startup or
- * in documentation (online or textual) provided with the package.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *    "This product includes cryptographic software written by
- *     Eric Young (eay@cryptsoft.com)"
- *    The word 'cryptographic' can be left out if the rouines from the library
- *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from
- *    the apps directory (application code) you must include an acknowledgement:
- *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- *
- * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * The licence and distribution terms for any publically available version or
- * derivative of this code cannot be changed.  i.e. this code cannot simply be
- * copied and put under another distribution licence
- * [including the GNU Public Licence.]
- */
-/* ====================================================================
- * Copyright (c) 1998-2000 The OpenSSL Project.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #ifndef HEADER_RAND_LCL_H
 # define HEADER_RAND_LCL_H
 
-# define ENTROPY_NEEDED 32      /* require 256 bits = 32 bytes of randomness */
-
-# if !defined(USE_MD5_RAND) && !defined(USE_SHA1_RAND) && !defined(USE_MDC2_RAND) && !defined(USE_MD2_RAND)
-#  define USE_SHA1_RAND
-# endif
-
+# include <openssl/aes.h>
 # include <openssl/evp.h>
-# define MD_Update(a,b,c)        EVP_DigestUpdate(a,b,c)
-# define MD_Final(a,b)           EVP_DigestFinal_ex(a,b,NULL)
-# if defined(USE_MD5_RAND)
-#  include <openssl/md5.h>
-#  define MD_DIGEST_LENGTH        MD5_DIGEST_LENGTH
-#  define MD_Init(a)              EVP_DigestInit_ex(a,EVP_md5(), NULL)
-#  define MD(a,b,c)               EVP_Digest(a,b,c,NULL,EVP_md5(), NULL)
-# elif defined(USE_SHA1_RAND)
-#  include <openssl/sha.h>
-#  define MD_DIGEST_LENGTH        SHA_DIGEST_LENGTH
-#  define MD_Init(a)              EVP_DigestInit_ex(a,EVP_sha1(), NULL)
-#  define MD(a,b,c)               EVP_Digest(a,b,c,NULL,EVP_sha1(), NULL)
-# elif defined(USE_MDC2_RAND)
-#  include <openssl/mdc2.h>
-#  define MD_DIGEST_LENGTH        MDC2_DIGEST_LENGTH
-#  define MD_Init(a)              EVP_DigestInit_ex(a,EVP_mdc2(), NULL)
-#  define MD(a,b,c)               EVP_Digest(a,b,c,NULL,EVP_mdc2(), NULL)
-# elif defined(USE_MD2_RAND)
-#  include <openssl/md2.h>
-#  define MD_DIGEST_LENGTH        MD2_DIGEST_LENGTH
-#  define MD_Init(a)              EVP_DigestInit_ex(a,EVP_md2(), NULL)
-#  define MD(a,b,c)               EVP_Digest(a,b,c,NULL,EVP_md2(), NULL)
-# endif
+# include <openssl/sha.h>
+# include <openssl/hmac.h>
+# include <openssl/ec.h>
+# include "internal/rand.h"
 
-void rand_hw_xor(unsigned char *buf, size_t num);
+/*
+ * Amount of randomness (in bytes) we want for initial seeding.
+ * This is based on the fact that we use AES-128 as the CRBG, and
+ * that we use the derivation function.  If either of those changes,
+ * (see rand_init() in rand_lib.c), change this.
+ */
+# define RANDOMNESS_NEEDED              16
+
+/* How many times to read the TSC as a randomness source. */
+# define TSC_READ_COUNT                 4
+
+/* Maximum amount of randomness to hold in RAND_BYTES_BUFFER. */
+# define MAX_RANDOMNESS_HELD            (4 * RANDOMNESS_NEEDED)
+
+/* Maximum count allowed in reseeding */
+# define MAX_RESEED                     (1 << 24)
+
+/* How often we call RAND_poll() in drbg_entropy_from_system */
+# define RAND_POLL_RETRIES 8
+
+/* Max size of entropy, addin, etc. Larger than any reasonable value */
+# define DRBG_MAX_LENGTH                0x7ffffff0
+
+
+/* DRBG status values */
+typedef enum drbg_status_e {
+    DRBG_UNINITIALISED,
+    DRBG_READY,
+    DRBG_RESEED,
+    DRBG_ERROR
+} DRBG_STATUS;
+
+
+/*
+ * A buffer of random bytes to be fed as "entropy" into the DRBG.  RAND_add()
+ * adds data to the buffer, and the drbg_entropy_from_system() pulls data from
+ * the buffer. We have a separate data structure because of the way the
+ * API is defined; otherwise we'd run into deadlocks (RAND_bytes ->
+ * RAND_DRBG_generate* -> drbg_entropy_from_system -> RAND_poll -> RAND_add ->
+ * drbg_add*; the functions with an asterisk lock).
+ */
+typedef struct rand_bytes_buffer_st {
+    CRYPTO_RWLOCK *lock;
+    unsigned char *buff;
+    size_t size;
+    size_t curr;
+    int secure;
+} RAND_BYTES_BUFFER;
+
+/*
+ * The state of a DRBG AES-CTR.
+ */
+typedef struct rand_drbg_ctr_st {
+    AES_KEY ks;
+    size_t keylen;
+    unsigned char K[32];
+    unsigned char V[16];
+    /* Temp variables used by derivation function */
+    AES_KEY df_ks;
+    AES_KEY df_kxks;
+    /* Temporary block storage used by ctr_df */
+    unsigned char bltmp[16];
+    size_t bltmp_pos;
+    unsigned char KX[48];
+} RAND_DRBG_CTR;
+
+
+/*
+ * The state of all types of DRBGs, even though we only have CTR mode
+ * right now.
+ */
+struct rand_drbg_st {
+    CRYPTO_RWLOCK *lock;
+    RAND_DRBG *parent;
+    int nid; /* the underlying algorithm */
+    int fork_count;
+    unsigned short flags; /* various external flags */
+    char secure;
+    /*
+     * This is a fixed-size buffer, but we malloc to make it a little
+     * harder to find; a classic security/performance trade-off.
+     */
+    int size;
+
+    /* 
+     * The following parameters are setup by the per-type "init" function.
+     *
+     * Currently the only type is CTR_DRBG, its init function is ctr_init().
+     *
+     * The parameters are closely related to the ones described in 
+     * section '10.2.1 CTR_DRBG' of [NIST SP 800-90Ar1], with one
+     * crucial difference: In the NIST standard, all counts are given
+     * in bits, whereas in OpenSSL entropy counts are given in bits 
+     * and buffer lengths are given in bytes.
+     * 
+     * Since this difference has lead to some confusion in the past,
+     * (see [GitHub Issue #2443], formerly [rt.openssl.org #4055])
+     * the 'len' suffix has been added to all buffer sizes for 
+     * clarification.
+     */
+    
+    int strength;
+    size_t max_request;
+    size_t min_entropylen, max_entropylen;
+    size_t min_noncelen, max_noncelen;
+    size_t max_perslen, max_adinlen;
+    unsigned int reseed_counter;
+    unsigned int reseed_interval;
+    size_t seedlen;
+    DRBG_STATUS state;
+
+    /* Application data, mainly used in the KATs. */
+    CRYPTO_EX_DATA ex_data;
+
+    /* Implementation specific structures; was a union, but inline for now */
+    RAND_DRBG_CTR ctr;
+
+    /* Callback functions.  See comments in rand_lib.c */
+    RAND_DRBG_get_entropy_fn get_entropy;
+    RAND_DRBG_cleanup_entropy_fn cleanup_entropy;
+    RAND_DRBG_get_nonce_fn get_nonce;
+    RAND_DRBG_cleanup_nonce_fn cleanup_nonce;
+};
+
+/* The global RAND method, and the global buffer and DRBG instance. */
+extern RAND_METHOD rand_meth;
+extern RAND_BYTES_BUFFER rand_bytes;
+
+/* How often we've forked (only incremented in child). */
+extern int rand_fork_count;
+
+/* Hardware-based seeding functions. */
+void rand_read_tsc(RAND_poll_cb rand_add, void *arg);
+int rand_read_cpu(RAND_poll_cb rand_add, void *arg);
+
+/* DRBG entropy callbacks. */
+void drbg_release_entropy(RAND_DRBG *drbg, unsigned char *out, size_t outlen);
+size_t drbg_entropy_from_parent(RAND_DRBG *drbg,
+                                unsigned char **pout,
+                                int entropy, size_t min_len, size_t max_len);
+size_t drbg_entropy_from_system(RAND_DRBG *drbg,
+                                unsigned char **pout,
+                                int entropy, size_t min_len, size_t max_len);
+
+/* DRBG functions implementing AES-CTR */
+int ctr_init(RAND_DRBG *drbg);
+int ctr_uninstantiate(RAND_DRBG *drbg);
+int ctr_instantiate(RAND_DRBG *drbg,
+                    const unsigned char *entropy, size_t entropylen,
+                    const unsigned char *nonce, size_t noncelen,
+                    const unsigned char *pers, size_t perslen);
+int ctr_reseed(RAND_DRBG *drbg,
+               const unsigned char *entropy, size_t entropylen,
+               const unsigned char *adin, size_t adinlen);
+int ctr_generate(RAND_DRBG *drbg,
+                 unsigned char *out, size_t outlen,
+                 const unsigned char *adin, size_t adinlen);
 
 #endif

@@ -1,71 +1,11 @@
 /*
- * Written by Nils Larsch for the OpenSSL project.
- */
-/* ====================================================================
- * Copyright (c) 1998-2005 The OpenSSL Project.  All rights reserved.
+ * Copyright 2002-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- *
- * 3. All advertising materials mentioning features or use of this
- *    software must display the following acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit. (http://www.openssl.org/)"
- *
- * 4. The names "OpenSSL Toolkit" and "OpenSSL Project" must not be used to
- *    endorse or promote products derived from this software without
- *    prior written permission. For written permission, please contact
- *    openssl-core@openssl.org.
- *
- * 5. Products derived from this software may not be called "OpenSSL"
- *    nor may "OpenSSL" appear in their names without prior written
- *    permission of the OpenSSL Project.
- *
- * 6. Redistributions of any form whatsoever must retain the following
- *    acknowledgment:
- *    "This product includes software developed by the OpenSSL Project
- *    for use in the OpenSSL Toolkit (http://www.openssl.org/)"
- *
- * THIS SOFTWARE IS PROVIDED BY THE OpenSSL PROJECT ``AS IS'' AND ANY
- * EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OpenSSL PROJECT OR
- * ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- * ====================================================================
- *
- * This product includes cryptographic software written by Eric Young
- * (eay@cryptsoft.com).  This product includes software written by Tim
- * Hudson (tjh@cryptsoft.com).
- *
- */
-/* ====================================================================
- * Copyright 2002 Sun Microsystems, Inc. ALL RIGHTS RESERVED.
- *
- * Portions of the attached software ("Contribution") are developed by
- * SUN MICROSYSTEMS, INC., and are contributed to the OpenSSL project.
- *
- * The Contribution is licensed pursuant to the OpenSSL open source
- * license provided above.
- *
- * The elliptic curve binary polynomial software is originally written by
- * Sheueling Chang Shantz and Douglas Stebila of Sun Microsystems Laboratories.
- *
+ * Licensed under the OpenSSL license (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
  */
 
 #include <openssl/opensslconf.h>
@@ -89,10 +29,11 @@ typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP,
     OPT_INFORM, OPT_OUTFORM, OPT_IN, OPT_OUT, OPT_TEXT, OPT_C,
     OPT_CHECK, OPT_LIST_CURVES, OPT_NO_SEED, OPT_NOOUT, OPT_NAME,
-    OPT_CONV_FORM, OPT_PARAM_ENC, OPT_GENKEY, OPT_RAND, OPT_ENGINE
+    OPT_CONV_FORM, OPT_PARAM_ENC, OPT_GENKEY, OPT_ENGINE,
+    OPT_R_ENUM
 } OPTION_CHOICE;
 
-OPTIONS ecparam_options[] = {
+const OPTIONS ecparam_options[] = {
     {"help", OPT_HELP, '-', "Display this summary"},
     {"inform", OPT_INFORM, 'F', "Input format - default PEM (DER or PEM)"},
     {"outform", OPT_OUTFORM, 'F', "Output format - default PEM"},
@@ -112,7 +53,7 @@ OPTIONS ecparam_options[] = {
     {"param_enc", OPT_PARAM_ENC, 's',
      "Specifies the way the ec parameters are encoded"},
     {"genkey", OPT_GENKEY, '-', "Generate ec key"},
-    {"rand", OPT_RAND, 's', "Files to use for random number input"},
+    OPT_R_OPTIONS,
 # ifndef OPENSSL_NO_ENGINE
     {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
 # endif
@@ -134,12 +75,13 @@ static OPT_PAIR encodings[] = {
 
 int ecparam_main(int argc, char **argv)
 {
+    ENGINE *e = NULL;
     BIGNUM *ec_gen = NULL, *ec_order = NULL, *ec_cofactor = NULL;
     BIGNUM *ec_p = NULL, *ec_a = NULL, *ec_b = NULL;
     BIO *in = NULL, *out = NULL;
     EC_GROUP *group = NULL;
     point_conversion_form_t form = POINT_CONVERSION_UNCOMPRESSED;
-    char *curve_name = NULL, *inrand = NULL;
+    char *curve_name = NULL;
     char *infile = NULL, *outfile = NULL, *prog;
     unsigned char *buffer = NULL;
     OPTION_CHOICE o;
@@ -147,7 +89,7 @@ int ecparam_main(int argc, char **argv)
     int informat = FORMAT_PEM, outformat = FORMAT_PEM, noout = 0, C = 0;
     int ret = 1, private = 0;
     int list_curves = 0, no_seed = 0, check = 0, new_form = 0;
-    int text = 0, i, need_rand = 0, genkey = 0;
+    int text = 0, i, genkey = 0;
 
     prog = opt_init(argc, argv, ecparam_options);
     while ((o = opt_next()) != OPT_EOF) {
@@ -208,14 +150,14 @@ int ecparam_main(int argc, char **argv)
             new_asn1_flag = 1;
             break;
         case OPT_GENKEY:
-            genkey = need_rand = 1;
+            genkey = 1;
             break;
-        case OPT_RAND:
-            inrand = opt_arg();
-            need_rand = 1;
+        case OPT_R_CASES:
+            if (!opt_rand(o))
+                goto end;
             break;
         case OPT_ENGINE:
-            (void)setup_engine(opt_arg(), 0);
+            e = setup_engine(opt_arg(), 0);
             break;
         }
     }
@@ -278,8 +220,9 @@ int ecparam_main(int argc, char **argv)
             BIO_printf(bio_err, "using curve name prime256v1 "
                        "instead of secp256r1\n");
             nid = NID_X9_62_prime256v1;
-        } else
+        } else {
             nid = OBJ_sn2nid(curve_name);
+        }
 
         if (nid == 0)
             nid = EC_curve_nist2nid(curve_name);
@@ -296,10 +239,11 @@ int ecparam_main(int argc, char **argv)
         }
         EC_GROUP_set_asn1_flag(group, asn1_flag);
         EC_GROUP_set_point_conversion_form(group, form);
-    } else if (informat == FORMAT_ASN1)
+    } else if (informat == FORMAT_ASN1) {
         group = d2i_ECPKParameters_bio(in, NULL);
-    else
+    } else {
         group = PEM_read_bio_ECPKParameters(in, NULL, NULL, NULL);
+    }
     if (group == NULL) {
         BIO_printf(bio_err, "unable to load elliptic curve parameters\n");
         ERR_print_errors(bio_err);
@@ -452,20 +396,11 @@ int ecparam_main(int argc, char **argv)
         }
     }
 
-    if (need_rand) {
-        app_RAND_load_file(NULL, (inrand != NULL));
-        if (inrand != NULL)
-            BIO_printf(bio_err, "%ld semi-random bytes loaded\n",
-                       app_RAND_load_files(inrand));
-    }
-
     if (genkey) {
         EC_KEY *eckey = EC_KEY_new();
 
         if (eckey == NULL)
             goto end;
-
-        assert(need_rand);
 
         if (EC_KEY_set_group(eckey, group) == 0) {
             BIO_printf(bio_err, "unable to set group when generating key\n");
@@ -489,9 +424,6 @@ int ecparam_main(int argc, char **argv)
         EC_KEY_free(eckey);
     }
 
-    if (need_rand)
-        app_RAND_write_file(NULL);
-
     ret = 0;
  end:
     BN_free(ec_p);
@@ -501,9 +433,10 @@ int ecparam_main(int argc, char **argv)
     BN_free(ec_order);
     BN_free(ec_cofactor);
     OPENSSL_free(buffer);
+    EC_GROUP_free(group);
+    release_engine(e);
     BIO_free(in);
     BIO_free_all(out);
-    EC_GROUP_free(group);
     return (ret);
 }
 
